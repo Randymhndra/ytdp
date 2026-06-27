@@ -90,9 +90,18 @@
                 <span>Crossfade duration: <span id="fadeTimeDisplay" class="font-bold text-white">10</span>s</span>
                 <input type="range" id="fadeSlider" min="2" max="20" value="10" class="w-32 accent-violet-500" onchange="updateCrossfadeTime(this.value)">
             </div>
-            <button id="playPauseBtn" onclick="togglePlayback()" disabled class="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold py-4 px-10 rounded-full text-lg shadow-lg shadow-violet-500/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-                <i class="fas fa-spinner fa-spin mr-2"></i> Loading Players...
-            </button>
+            
+            <div class="flex justify-center items-center gap-4">
+                <button id="prevBtn" onclick="playPrevious()" disabled class="bg-black/50 hover:bg-violet-600/50 text-white w-14 h-14 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-step-backward"></i>
+                </button>
+                <button id="playPauseBtn" onclick="togglePlayback()" disabled class="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold py-4 px-10 rounded-full text-lg shadow-lg shadow-violet-500/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-spinner fa-spin mr-2"></i> Loading Players...
+                </button>
+                <button id="nextBtn" onclick="playNext()" disabled class="bg-black/50 hover:bg-fuchsia-600/50 text-white w-14 h-14 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-step-forward"></i>
+                </button>
+            </div>
         </div>
 
         <!-- Playlist Queue -->
@@ -121,6 +130,7 @@
         let isCrossfading = false;
         let crossfadeTime = 10; // Default 10 seconds
         let playbackMonitor = null;
+        let fadeInterval = null; // Track crossfade interval globally to allow cancellation
         let readyCount = 0; // Ensure all 3 iframes load before playing
         let isPlaying = false; // Track active play state
         let isFetchingPlaylist = false; // Timeout tracker
@@ -175,7 +185,7 @@
                 }
                 
                 queueList.innerHTML += `
-                    <li class="flex items-center justify-between p-3 rounded-lg ${colorClass} border ${borderClass} hover:bg-white/5 transition-colors">
+                    <li class="flex items-center justify-between p-3 rounded-lg ${colorClass} border ${borderClass} hover:bg-white/5 transition-colors cursor-pointer" onclick="hardSwitchToTrack(${index})">
                         <div class="flex items-center gap-3">
                             <span class="opacity-50 text-sm w-4">${index + 1}.</span>
                             <div class="w-10 h-6 bg-gray-800 rounded flex items-center justify-center overflow-hidden">
@@ -243,6 +253,8 @@
                         status.innerText = "❌ Failed to load playlist. Ensure it is public.";
                         status.className = "text-sm mt-2 text-red-400";
                         document.getElementById('playPauseBtn').disabled = false;
+                        document.getElementById('prevBtn').disabled = false;
+                        document.getElementById('nextBtn').disabled = false;
                         document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Play';
                     }
                 }
@@ -322,6 +334,8 @@
             readyCount++;
             if(readyCount === 3) { // 3 iframes initialized
                 document.getElementById('playPauseBtn').disabled = false;
+                document.getElementById('prevBtn').disabled = false;
+                document.getElementById('nextBtn').disabled = false;
                 document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Play';
                 
                 // Initialize default volumes safely
@@ -355,6 +369,7 @@
             
             // Stop current playback and reset state
             isPlaying = false;
+            if (fadeInterval) clearInterval(fadeInterval);
             if(playbackMonitor) clearInterval(playbackMonitor);
             isCrossfading = false;
             document.getElementById('crossfadeIndicator').style.opacity = '0';
@@ -363,6 +378,8 @@
             if (players[1] && typeof players[1].stopVideo === 'function') players[1].stopVideo();
             
             document.getElementById('playPauseBtn').disabled = true;
+            document.getElementById('prevBtn').disabled = true;
+            document.getElementById('nextBtn').disabled = true;
             document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Loading...';
 
             // Reset UI decks visually
@@ -375,13 +392,10 @@
             // Ask the hidden player to cue the playlist so we can extract its IDs
             isFetchingPlaylist = true;
             if (players[2] && typeof players[2].loadPlaylist === 'function') {
-                // ADDED: listType: 'playlist' is required for reliability
                 players[2].loadPlaylist({list: listId, listType: 'playlist'});
                 
-                // ADDED: Force play to wake up the iframe if blocked
                 setTimeout(() => { if (isFetchingPlaylist && typeof players[2].playVideo === 'function') players[2].playVideo(); }, 1000);
 
-                // ADDED: Poll aggressively since YouTube events can be unreliable
                 let pollInterval = setInterval(() => {
                     if (!isFetchingPlaylist) {
                         clearInterval(pollInterval);
@@ -394,7 +408,6 @@
                     }
                 }, 500);
 
-                // Fallback timeout in case YouTube blocks the load or it remains empty
                 setTimeout(() => {
                     if (isFetchingPlaylist) {
                         isFetchingPlaylist = false;
@@ -402,6 +415,8 @@
                         status.innerText = "❌ Request timed out. Ensure the playlist is public and contains playable tracks.";
                         status.className = "text-sm mt-2 text-red-400";
                         document.getElementById('playPauseBtn').disabled = false;
+                        document.getElementById('prevBtn').disabled = false;
+                        document.getElementById('nextBtn').disabled = false;
                         document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Play';
                     }
                 }, 8000);
@@ -433,20 +448,87 @@
                 players[1].cueVideoById(playlist[1] || playlist[0]);
             }
             
-            // Re-enable play/pause button
+            // Re-enable play/pause/skip buttons
             document.getElementById('playPauseBtn').disabled = false;
+            document.getElementById('prevBtn').disabled = false;
+            document.getElementById('nextBtn').disabled = false;
             document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Play';
         }
 
         // Fired when hidden player changes state
         function onHiddenPlayerStateChange(event) {
-            if (!isFetchingPlaylist) return; // Only process if we initiated a fetch
+            if (!isFetchingPlaylist) return; 
 
             if (players[2] && typeof players[2].getPlaylist === 'function') {
-                let fetched = players[2].getPlaylist(); // Rips array of video IDs
+                let fetched = players[2].getPlaylist(); 
                 if (fetched && fetched.length > 0) {
                     handlePlaylistSuccess(fetched);
                 }
+            }
+        }
+
+        // --- MANUAL TRACK SWITCHING ---
+        function playNext() {
+            if (playlist.length === 0) return;
+            let nextIdx = (currentTrackIndex + 1) % playlist.length;
+            hardSwitchToTrack(nextIdx);
+        }
+
+        function playPrevious() {
+            if (playlist.length === 0) return;
+            let prevIdx = (currentTrackIndex - 1 + playlist.length) % playlist.length;
+            hardSwitchToTrack(prevIdx);
+        }
+
+        function hardSwitchToTrack(targetIndex) {
+            if (!players[0] || !players[1]) return;
+            
+            let oldIdx = activePlayerIndex;
+            let newIdx = activePlayerIndex === 0 ? 1 : 0;
+            
+            // Stop current operations
+            if (fadeInterval) clearInterval(fadeInterval);
+            if (typeof players[oldIdx].stopVideo === 'function') {
+                players[oldIdx].stopVideo();
+            }
+            
+            // Update app states
+            activePlayerIndex = newIdx;
+            currentTrackIndex = targetIndex;
+            isCrossfading = false;
+            document.getElementById('crossfadeIndicator').style.opacity = '0';
+            
+            // Update UI classes and Icons
+            document.getElementById(`playerContainer${newIdx}`).classList.replace('inactive-player', 'active-player');
+            document.getElementById(`playerContainer${oldIdx}`).classList.replace('active-player', 'inactive-player');
+            document.getElementById(`volBar${oldIdx}`).style.width = `0%`;
+            document.getElementById(`volBar${newIdx}`).style.width = `100%`;
+            document.getElementById(`volIcon${newIdx}`).className = "fas fa-volume-up text-sm";
+            document.getElementById(`volIcon${oldIdx}`).className = "fas fa-volume-mute text-sm";
+            
+            renderQueue();
+            
+            // Load and play target track
+            if (typeof players[newIdx].loadVideoById === 'function') {
+                players[newIdx].setVolume(100);
+                isPreloading[newIdx] = false;
+                players[newIdx].loadVideoById(playlist[targetIndex]);
+                
+                // Ensure UI reflects playing state
+                isPlaying = true;
+                document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-pause mr-2"></i> Pause';
+                
+                // Re-start monitoring
+                if(playbackMonitor) clearInterval(playbackMonitor);
+                playbackMonitor = setInterval(monitorPlayback, 250);
+            }
+            
+            // Preload next sequential track in the old deck
+            let nextTrackIndex = (targetIndex + 1) % playlist.length;
+            if (typeof players[oldIdx].loadVideoById === 'function') {
+                players[oldIdx].setVolume(0);
+                isPreloading[oldIdx] = true;
+                players[oldIdx].loadVideoById(playlist[nextTrackIndex]);
             }
         }
 
@@ -560,7 +642,8 @@
             let totalSteps = (crossfadeTime * 1000) / fadeStepTime;
             let currentStep = 0;
 
-            let fadeInterval = setInterval(() => {
+            if (fadeInterval) clearInterval(fadeInterval);
+            fadeInterval = setInterval(() => {
                 if (!isPlaying) return; // Pause fading if playback is paused
 
                 currentStep++;
