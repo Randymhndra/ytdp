@@ -125,6 +125,7 @@
         let isPlaying = false; // Track active play state
         let isFetchingPlaylist = false; // Timeout tracker
         let isSeeking = false; // Track if user is dragging slider
+        let isPreloading = [false, false, false]; // Track if player is doing a stealth load
 
         // Update crossfade duration
         function updateCrossfadeTime(val) {
@@ -271,19 +272,31 @@
                 
                 // Ensure methods exist before calling (fixes TypeError if API isn't fully ready)
                 if (isPlaying && players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
+                    isPreloading[activePlayerIndex] = false;
                     players[activePlayerIndex].setVolume(100);
                     players[activePlayerIndex].playVideo();
                 }
             }
         }
 
-        // Failsafe if track ends before crossfade triggers
+        // Catch states for preloading & auto-advancing
         function onPlayerStateChange(event) {
+            if (!event.target || typeof event.target.getIframe !== 'function') return;
+            
+            let playerId = event.target.getIframe().id;
+            let playerIdx = playerId === 'player0' ? 0 : (playerId === 'player1' ? 1 : -1);
+            
+            // PRELOAD HANDLER: If it's playing in the background, pause and reset immediately
+            if (playerIdx !== -1 && event.data === 1 && isPreloading[playerIdx]) {
+                event.target.pauseVideo();
+                event.target.seekTo(0);
+                isPreloading[playerIdx] = false;
+                return;
+            }
+
+            // Failsafe if track ends before crossfade triggers
             if (event.data === 0) { // State 0 = ended
-                if (!event.target || typeof event.target.getIframe !== 'function') return;
-                
-                let playerId = event.target.getIframe().id;
-                let endedIdx = playerId === 'player0' ? 0 : 1;
+                let endedIdx = playerIdx;
                 
                 if (endedIdx === activePlayerIndex && !isCrossfading) {
                     let nextIdx = activePlayerIndex === 0 ? 1 : 0;
@@ -296,6 +309,7 @@
                     finishCrossfade(endedIdx, nextIdx);
                     
                     if (isPlaying && players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
+                        isPreloading[activePlayerIndex] = false;
                         players[activePlayerIndex].setVolume(100);
                         players[activePlayerIndex].playVideo();
                     }
@@ -409,9 +423,15 @@
             status.innerText = `✅ Successfully loaded ${playlist.length} tracks!`;
             status.className = "text-sm mt-2 text-green-400";
             
-            // Cue the new tracks into Deck A and Deck B
-            if (players[0] && typeof players[0].cueVideoById === 'function') players[0].cueVideoById(playlist[0]);
-            if (players[1] && typeof players[1].cueVideoById === 'function') players[1].cueVideoById(playlist[1] || playlist[0]);
+            // Cue the new tracks into Deck A and Deck B initially
+            if (players[0] && typeof players[0].cueVideoById === 'function') {
+                isPreloading[0] = false;
+                players[0].cueVideoById(playlist[0]);
+            }
+            if (players[1] && typeof players[1].cueVideoById === 'function') {
+                isPreloading[1] = false;
+                players[1].cueVideoById(playlist[1] || playlist[0]);
+            }
             
             // Re-enable play/pause button
             document.getElementById('playPauseBtn').disabled = false;
@@ -461,7 +481,20 @@
                     if (typeof currentPlayer.setVolume === 'function' && currentPlayer.getVolume() !== 100) {
                         currentPlayer.setVolume(100);
                     }
+                    isPreloading[activePlayerIndex] = false;
                     currentPlayer.playVideo();
+
+                    // Preload the inactive deck immediately now that we have user interaction
+                    let inactiveIdx = activePlayerIndex === 0 ? 1 : 0;
+                    if (players[inactiveIdx] && typeof players[inactiveIdx].getPlayerState === 'function') {
+                        let state = players[inactiveIdx].getPlayerState();
+                        // 5 = CUED, -1 = UNSTARTED
+                        if (state === 5 || state === -1) {
+                            players[inactiveIdx].setVolume(0);
+                            isPreloading[inactiveIdx] = true;
+                            players[inactiveIdx].playVideo(); // This will trigger PLAYING -> pause at 0
+                        }
+                    }
                 }
                 
                 // Ensure monitoring continues
@@ -511,7 +544,8 @@
             // Prep the incoming player
             if (playerIn && typeof playerIn.setVolume === 'function') {
                 playerIn.setVolume(0);
-                playerIn.playVideo();
+                isPreloading[fadingInPlayerIndex] = false; // Disable preload flag just in case
+                playerIn.playVideo(); // Resume from the preloaded 0:00 mark
             }
 
             // Toggle CSS classes for the glowing active border
@@ -551,7 +585,7 @@
             }, fadeStepTime);
         }
 
-        // Clean up after fade completes and cue the NEXT track
+        // Clean up after fade completes and preload the NEXT track
         function finishCrossfade(oldPlayerIdx, newPlayerIdx) {
             if (players[oldPlayerIdx] && typeof players[oldPlayerIdx].stopVideo === 'function') {
                 players[oldPlayerIdx].stopVideo();
@@ -568,10 +602,12 @@
             currentTrackIndex = (currentTrackIndex + 1) % playlist.length;
             renderQueue();
 
-            // Look ahead to cue the old player with track N+1
+            // Look ahead to forcefully PRELOAD the old player with track N+1
             let nextTrackIndex = (currentTrackIndex + 1) % playlist.length;
-            if (players[oldPlayerIdx] && typeof players[oldPlayerIdx].cueVideoById === 'function') {
-                players[oldPlayerIdx].cueVideoById(playlist[nextTrackIndex]);
+            if (players[oldPlayerIdx] && typeof players[oldPlayerIdx].loadVideoById === 'function') {
+                players[oldPlayerIdx].setVolume(0);
+                isPreloading[oldPlayerIdx] = true;
+                players[oldPlayerIdx].loadVideoById(playlist[nextTrackIndex]); // This triggers PLAYING, gets paused at 0
             }
         }
     </script>
