@@ -113,8 +113,8 @@
                 <!-- Deck A -->
                 <div id="playerContainer0" class="flex-1 bg-[#121212] p-4 rounded-xl border active-player transition-all duration-500">
                     <div class="flex justify-between items-center mb-3">
-                        <span class="text-sm font-semibold text-gray-300">Deck A</span>
-                        <i class="fas fa-volume-up text-white text-sm" id="volIcon0"></i>
+                        <span id="deckTitle0" class="text-sm font-semibold text-gray-300 truncate flex-1 pr-2">Deck A</span>
+                        <i class="fas fa-volume-up text-white text-sm flex-shrink-0" id="volIcon0"></i>
                     </div>
                     <div class="w-full h-1 bg-white/10 rounded-full mb-4 overflow-hidden">
                         <div id="volBar0" class="vol-bar h-full bg-white" style="width: 100%;"></div>
@@ -130,8 +130,8 @@
                 <!-- Deck B -->
                 <div id="playerContainer1" class="flex-1 bg-[#121212] p-4 rounded-xl border inactive-player transition-all duration-500">
                     <div class="flex justify-between items-center mb-3">
-                        <span class="text-sm font-semibold text-gray-300">Deck B</span>
-                        <i class="fas fa-volume-mute text-white text-sm" id="volIcon1"></i>
+                        <span id="deckTitle1" class="text-sm font-semibold text-gray-300 truncate flex-1 pr-2">Deck B</span>
+                        <i class="fas fa-volume-mute text-white text-sm flex-shrink-0" id="volIcon1"></i>
                     </div>
                     <div class="w-full h-1 bg-white/10 rounded-full mb-4 overflow-hidden">
                         <div id="volBar1" class="vol-bar h-full bg-white" style="width: 0%;"></div>
@@ -235,6 +235,20 @@
         let isShuffle = false;
         let repeatState = 0; // 0=Off, 1=All, 2=One
         let shuffledQueue = [];
+
+        // Dynamic Deck Title Updater
+        function setDeckTitle(playerIndex, trackIndex) {
+            const titleEl = document.getElementById(`deckTitle${playerIndex}`);
+            if (trackIndex === -1 || trackIndex >= playlist.length || !playlist[trackIndex]) {
+                titleEl.innerText = `Deck ${playerIndex === 0 ? 'A' : 'B'}`;
+                titleEl.className = `text-sm font-semibold text-gray-300 truncate flex-1 pr-2`;
+                return;
+            }
+            const videoId = playlist[trackIndex];
+            titleEl.innerText = trackTitles[videoId] || 'Loading...';
+            // Utilizing the same class dynamic as the queue so background fetches auto-update these labels!
+            titleEl.className = `title-id-${videoId} text-sm font-semibold text-gray-300 truncate flex-1 pr-2`;
+        }
 
         // Restore previously used playlist URL
         window.addEventListener('DOMContentLoaded', () => {
@@ -381,6 +395,8 @@
             let nextIdx = getNextTrackIndex(true);
             nextPreloadedIndex = nextIdx;
 
+            setDeckTitle(inactiveIdx, nextIdx);
+
             if (nextIdx !== -1 && players[inactiveIdx] && typeof players[inactiveIdx].loadVideoById === 'function') {
                 players[inactiveIdx].setVolume(0);
                 isPreloading[inactiveIdx] = true;
@@ -514,6 +530,10 @@
             });
             
             renderQueue();
+            
+            // Set initial titles
+            setDeckTitle(0, 0);
+            setDeckTitle(1, playlist.length > 1 ? 1 : 0);
         }
 
         // Handle unplayable tracks (often due to copyright blocking embeds)
@@ -708,6 +728,9 @@
             let nextIdx = getNextTrackIndex(true);
             nextPreloadedIndex = nextIdx;
             
+            setDeckTitle(0, 0);
+            setDeckTitle(1, nextIdx !== -1 ? nextIdx : 0);
+            
             renderQueue();
             
             const status = document.getElementById('playlistStatus');
@@ -772,6 +795,9 @@
             // Update app states
             activePlayerIndex = newIdx;
             currentTrackIndex = targetIndex;
+            
+            setDeckTitle(newIdx, targetIndex);
+            
             isCrossfading = false;
             document.getElementById('crossfadeIndicator').style.opacity = '0';
             
