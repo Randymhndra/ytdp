@@ -908,7 +908,7 @@
             let totalStepsOut = (crossfadeTime * 1000) / fadeStepTime;
             
             // Incoming track (video n+1) fades in twice as fast (half the duration)
-            let totalStepsIn = totalStepsOut / 1; 
+            let totalStepsIn = totalStepsOut / 2; 
             
             let currentStep = 0;
 
@@ -918,9 +918,13 @@
 
                 currentStep++;
                 
-                // Calculate volume (0 to 100) using respective independent step bounds
-                let volOut = Math.max(0, 100 - (currentStep / totalStepsOut) * 100);
-                let volIn = Math.min(100, (currentStep / totalStepsIn) * 100);
+                // Calculate normalized progress (0.0 to 1.0)
+                let tOut = Math.min(1, currentStep / totalStepsOut);
+                let tIn = Math.min(1, currentStep / totalStepsIn);
+
+                // Logarithmic/Equal-power volume curve for smoother audio transition
+                let volOut = Math.max(0, Math.cos(tOut * 0.5 * Math.PI) * 100);
+                let volIn = Math.min(100, Math.sin(tIn * 0.5 * Math.PI) * 100);
 
                 // Apply to YouTube iFrames
                 if (playerOut && typeof playerOut.setVolume === 'function') playerOut.setVolume(volOut);
