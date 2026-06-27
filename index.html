@@ -282,58 +282,74 @@
             }, 600); // Debounce
         }
 
-        // Updated for maximum resiliency combining Invidious & Piped APIs
+        // SCRAPING PROXY SEARCH: Bypasses official YouTube API and flaky open-source APIs
+        // directly extracts search results from YouTube's raw HTML response.
         async function performRobustSearch(query) {
-            const instances = [
-                // Highly available Invidious instances
-                { url: 'https://invidious.flokinet.to/api/v1/search?q=', type: 'invidious' },
-                { url: 'https://inv.tux.pizza/api/v1/search?q=', type: 'invidious' },
-                { url: 'https://invidious.weblibre.org/api/v1/search?q=', type: 'invidious' },
-                { url: 'https://vid.puffyan.us/api/v1/search?q=', type: 'invidious' },
-                // Fallback Piped instances
-                { url: 'https://api.piped.projectsegfau.lt/search?q=', type: 'piped' },
-                { url: 'https://piped-api.garudalinux.org/search?q=', type: 'piped' },
-                { url: 'https://pipedapi.smnz.de/search?q=', type: 'piped' }
+            const targetUrl = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(query);
+            
+            // Public CORS proxies to bypass browser protections for our direct scrape
+            const proxies = [
+                `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`
             ];
             
-            for (let instance of instances) {
+            let html = null;
+            for (let proxy of proxies) {
                 try {
-                    const reqUrl = instance.type === 'piped' 
-                        ? `${instance.url}${encodeURIComponent(query)}&filter=all` 
-                        : `${instance.url}${encodeURIComponent(query)}`;
-                        
-                    const response = await fetch(reqUrl);
-                    if (!response.ok) continue;
+                    const res = await fetch(proxy);
+                    if (!res.ok) continue;
                     
-                    const data = await response.json();
-                    let results = [];
+                    if (proxy.includes('allorigins')) {
+                        const data = await res.json();
+                        html = data.contents;
+                    } else {
+                        html = await res.text();
+                    }
                     
-                    if (instance.type === 'invidious' && Array.isArray(data)) {
-                        results = data.filter(item => item.type === 'video').map(item => ({
-                            videoId: item.videoId,
-                            title: item.title,
-                            uploaderName: item.author
-                        }));
-                    } else if (instance.type === 'piped' && data.items) {
-                        results = data.items.filter(item => item.type === 'stream').map(item => {
-                            const vMatch = item.url.match(/v=([^&]+)/);
-                            return {
-                                videoId: vMatch ? vMatch[1] : null,
-                                title: item.title,
-                                uploaderName: item.uploaderName
-                            };
-                        }).filter(item => item.videoId);
-                    }
-
-                    if (results.length > 0) {
-                        return results.slice(0, 8); // top 8 video results
-                    }
-                } catch (error) {
-                    console.warn(`Search failed on ${instance.url}, trying next...`);
-                    continue; // Suppress errors and try next server silently
+                    if (html && html.includes('ytInitialData')) break; // Successfully fetched valid YT HTML
+                } catch (e) {
+                    console.warn("Proxy failed, trying next...");
                 }
             }
-            throw new Error("All search instances failed");
+            
+            if (!html) throw new Error("Failed to fetch search page");
+
+            // Extract the embedded JSON state object from YouTube's source code
+            let dataString = html.split('var ytInitialData = ')[1];
+            if (!dataString) {
+                dataString = html.split('window["ytInitialData"] = ')[1];
+            }
+            if (!dataString) throw new Error("Could not extract data");
+            
+            // Fix Syntax Error: Splitting string without causing browser to prematurely close our script tag
+            dataString = dataString.split(';</sc' + 'ript>')[0];
+            const parsed = JSON.parse(dataString);
+            
+            let results = [];
+            const contents = parsed.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
+            
+            if (contents) {
+                for (let section of contents) {
+                    if (section.itemSectionRenderer?.contents) {
+                        for (let item of section.itemSectionRenderer.contents) {
+                            const video = item.videoRenderer;
+                            if (video && video.videoId) {
+                                results.push({
+                                    videoId: video.videoId,
+                                    title: video.title?.runs?.[0]?.text || "Unknown Title",
+                                    uploaderName: video.ownerText?.runs?.[0]?.text || "YouTube"
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (results.length > 0) {
+                return results.slice(0, 8); // Top 8 video results
+            }
+            
+            throw new Error("No playable streams found.");
         }
 
         function renderSearchResults(results) {
