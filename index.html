@@ -163,22 +163,27 @@
             </div>
 
             <!-- Center: Core Controls -->
-            <div class="w-1/3 flex justify-center items-center gap-6">
-                <button id="prevBtn" onclick="playPrevious()" disabled class="text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+            <div class="w-1/3 flex justify-center items-center gap-4 sm:gap-6">
+                <button id="prevBtn" onclick="playPrevious()" disabled class="p-4 text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                     <i class="fas fa-step-backward text-xl"></i>
                 </button>
-                <button id="playPauseBtn" onclick="togglePlayback()" disabled class="w-12 h-12 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
-                    <i class="fas fa-spinner fa-spin text-lg"></i>
+                <button id="playPauseBtn" onclick="togglePlayback()" disabled class="w-14 h-14 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
+                    <i class="fas fa-spinner fa-spin text-xl"></i>
                 </button>
-                <button id="nextBtn" onclick="playNext()" disabled class="text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                <button id="nextBtn" onclick="playNext()" disabled class="p-4 text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                     <i class="fas fa-step-forward text-xl"></i>
                 </button>
             </div>
 
             <!-- Right: Extra / Volume (Placeholder for symmetry) -->
-            <div class="w-1/3 flex justify-end items-center text-gray-400 gap-4">
-                <i class="fas fa-random text-sm cursor-pointer hover:text-white"></i>
-                <i class="fas fa-redo-alt text-sm cursor-pointer hover:text-white"></i>
+            <div class="w-1/3 flex justify-end items-center text-gray-400 gap-2 sm:gap-4 pr-2">
+                <button id="shuffleBtn" onclick="toggleShuffle()" class="p-3 text-gray-400 hover:text-white transition-colors">
+                    <i class="fas fa-random text-sm"></i>
+                </button>
+                <button id="repeatBtn" onclick="toggleRepeat()" class="p-3 text-gray-400 hover:text-white transition-colors relative">
+                    <i id="repeatIcon" class="fas fa-redo-alt text-sm"></i>
+                    <span id="repeatOneBadge" class="absolute top-[8px] right-[4px] text-[9px] font-bold bg-[#030303] text-white rounded-full w-[14px] h-[14px] flex items-center justify-center hidden border border-[#030303]">1</span>
+                </button>
             </div>
         </div>
     </footer>
@@ -207,6 +212,12 @@
         let isFetchingPlaylist = false; // Timeout tracker
         let isSeeking = false; // Track if user is dragging slider
         let isPreloading = [false, false, false]; // Track if player is doing a stealth load
+
+        // Playlist state extensions
+        let nextPreloadedIndex = 1; 
+        let isShuffle = false;
+        let repeatState = 0; // 0=Off, 1=All, 2=One
+        let shuffledQueue = [];
 
         // Update crossfade duration
         function updateCrossfadeTime(val) {
@@ -237,6 +248,110 @@
                 players[activePlayerIndex].seekTo(val, true);
             }
             isSeeking = false; // Resume auto-updates
+        }
+
+        // --- SHUFFLE & REPEAT LOGIC ---
+        function toggleShuffle() {
+            isShuffle = !isShuffle;
+            let btn = document.getElementById('shuffleBtn');
+            if (isShuffle) {
+                btn.classList.replace('text-gray-400', 'text-white');
+                generateShuffledQueue();
+            } else {
+                btn.classList.replace('text-white', 'text-gray-400');
+            }
+            updatePreload(); 
+        }
+
+        function generateShuffledQueue() {
+            shuffledQueue = Array.from({length: playlist.length}, (_, i) => i);
+            for (let i = shuffledQueue.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffledQueue[i], shuffledQueue[j]] = [shuffledQueue[j], shuffledQueue[i]];
+            }
+            // Ensure current track isn't suddenly pushed far away
+            let currIdx = shuffledQueue.indexOf(currentTrackIndex);
+            if (currIdx > -1) {
+                shuffledQueue.splice(currIdx, 1);
+                shuffledQueue.unshift(currentTrackIndex);
+            }
+        }
+
+        function toggleRepeat() {
+            repeatState = (repeatState + 1) % 3;
+            let btn = document.getElementById('repeatBtn');
+            let badge = document.getElementById('repeatOneBadge');
+            
+            if (repeatState === 0) { // Off
+                btn.classList.replace('text-white', 'text-gray-400');
+                badge.classList.add('hidden');
+            } else if (repeatState === 1) { // Repeat All
+                btn.classList.replace('text-gray-400', 'text-white');
+                badge.classList.add('hidden');
+            } else if (repeatState === 2) { // Repeat One
+                btn.classList.replace('text-gray-400', 'text-white');
+                badge.classList.remove('hidden');
+            }
+            updatePreload(); 
+        }
+
+        function getNextTrackIndex(isAutoAdvance = false) {
+            if (playlist.length === 0) return -1;
+            
+            if (isAutoAdvance && repeatState === 2) {
+                return currentTrackIndex; // Repeat One loops identically
+            }
+
+            if (isShuffle) {
+                let idx = shuffledQueue.indexOf(currentTrackIndex);
+                if (idx === -1) idx = 0;
+                let nextIdx = idx + 1;
+                if (nextIdx >= shuffledQueue.length) {
+                    return repeatState > 0 ? shuffledQueue[0] : -1; 
+                }
+                return shuffledQueue[nextIdx];
+            } else {
+                let nextIdx = currentTrackIndex + 1;
+                if (nextIdx >= playlist.length) {
+                    return repeatState > 0 ? 0 : -1;
+                }
+                return nextIdx;
+            }
+        }
+
+        function getPrevTrackIndex() {
+            if (playlist.length === 0) return -1;
+
+            if (isShuffle) {
+                let idx = shuffledQueue.indexOf(currentTrackIndex);
+                if (idx === -1) idx = 0;
+                let prevIdx = idx - 1;
+                if (prevIdx < 0) {
+                    return repeatState > 0 ? shuffledQueue[shuffledQueue.length - 1] : 0;
+                }
+                return shuffledQueue[prevIdx];
+            } else {
+                let prevIdx = currentTrackIndex - 1;
+                if (prevIdx < 0) {
+                    return repeatState > 0 ? playlist.length - 1 : 0;
+                }
+                return prevIdx;
+            }
+        }
+
+        function updatePreload() {
+            if (playlist.length === 0 || !players[0]) return;
+            let inactiveIdx = activePlayerIndex === 0 ? 1 : 0;
+            let nextIdx = getNextTrackIndex(true);
+            nextPreloadedIndex = nextIdx;
+
+            if (nextIdx !== -1 && players[inactiveIdx] && typeof players[inactiveIdx].loadVideoById === 'function') {
+                players[inactiveIdx].setVolume(0);
+                isPreloading[inactiveIdx] = true;
+                players[inactiveIdx].loadVideoById(playlist[nextIdx]);
+            } else if (nextIdx === -1 && players[inactiveIdx] && typeof players[inactiveIdx].stopVideo === 'function') {
+                players[inactiveIdx].stopVideo();
+            }
         }
 
         // Render the track queue UI (YTM Style)
@@ -413,19 +528,25 @@
                 let endedIdx = playerIdx;
                 
                 if (endedIdx === activePlayerIndex && !isCrossfading) {
-                    let nextIdx = activePlayerIndex === 0 ? 1 : 0;
-                    
-                    document.getElementById(`playerContainer${nextIdx}`).classList.replace('inactive-player', 'active-player');
-                    document.getElementById(`playerContainer${endedIdx}`).classList.replace('active-player', 'inactive-player');
-                    document.getElementById(`volBar${endedIdx}`).style.width = `0%`;
-                    document.getElementById(`volBar${nextIdx}`).style.width = `100%`;
-                    
-                    finishCrossfade(endedIdx, nextIdx);
-                    
-                    if (isPlaying && players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
-                        isPreloading[activePlayerIndex] = false;
-                        players[activePlayerIndex].setVolume(100);
-                        players[activePlayerIndex].playVideo();
+                    if (nextPreloadedIndex !== -1) {
+                        let nextIdx = activePlayerIndex === 0 ? 1 : 0;
+                        
+                        document.getElementById(`playerContainer${nextIdx}`).classList.replace('inactive-player', 'active-player');
+                        document.getElementById(`playerContainer${endedIdx}`).classList.replace('active-player', 'inactive-player');
+                        document.getElementById(`volBar${endedIdx}`).style.width = `0%`;
+                        document.getElementById(`volBar${nextIdx}`).style.width = `100%`;
+                        
+                        finishCrossfade(endedIdx, nextIdx);
+                        
+                        if (isPlaying && players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
+                            isPreloading[activePlayerIndex] = false;
+                            players[activePlayerIndex].setVolume(100);
+                            players[activePlayerIndex].playVideo();
+                        }
+                    } else {
+                        // End of playlist without repeat on
+                        isPlaying = false;
+                        document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play text-xl translate-x-[2px]"></i>';
                     }
                 }
             }
@@ -535,6 +656,11 @@
             
             playlist = fetched;
             currentTrackIndex = 0;
+            if (isShuffle) generateShuffledQueue();
+            
+            let nextIdx = getNextTrackIndex(true);
+            nextPreloadedIndex = nextIdx;
+            
             renderQueue();
             
             const status = document.getElementById('playlistStatus');
@@ -549,7 +675,7 @@
             }
             if (players[1] && typeof players[1].cueVideoById === 'function') {
                 isPreloading[1] = false;
-                players[1].cueVideoById(playlist[1] || playlist[0]);
+                players[1].cueVideoById(nextIdx !== -1 ? playlist[nextIdx] : playlist[0]);
             }
             
             // Re-enable play/pause/skip buttons
@@ -574,14 +700,14 @@
         // --- MANUAL TRACK SWITCHING ---
         function playNext() {
             if (playlist.length === 0) return;
-            let nextIdx = (currentTrackIndex + 1) % playlist.length;
-            hardSwitchToTrack(nextIdx);
+            let nextIdx = getNextTrackIndex(false);
+            if (nextIdx !== -1) hardSwitchToTrack(nextIdx);
         }
 
         function playPrevious() {
             if (playlist.length === 0) return;
-            let prevIdx = (currentTrackIndex - 1 + playlist.length) % playlist.length;
-            hardSwitchToTrack(prevIdx);
+            let prevIdx = getPrevTrackIndex();
+            if (prevIdx !== -1) hardSwitchToTrack(prevIdx);
         }
 
         function hardSwitchToTrack(targetIndex) {
@@ -620,7 +746,7 @@
                 
                 // Ensure UI reflects playing state
                 isPlaying = true;
-                document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-pause text-lg"></i>';
+                document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-pause text-xl"></i>';
                 
                 // Re-start monitoring
                 if(playbackMonitor) clearInterval(playbackMonitor);
@@ -628,12 +754,7 @@
             }
             
             // Preload next sequential track in the old deck
-            let nextTrackIndex = (targetIndex + 1) % playlist.length;
-            if (typeof players[oldIdx].loadVideoById === 'function') {
-                players[oldIdx].setVolume(0);
-                isPreloading[oldIdx] = true;
-                players[oldIdx].loadVideoById(playlist[nextTrackIndex]);
-            }
+            updatePreload();
         }
 
         // Play/Pause toggle logic
@@ -654,11 +775,11 @@
                     currentPlayer.pauseVideo();
                 }
                 isPlaying = false;
-                btn.innerHTML = '<i class="fas fa-play text-lg translate-x-[2px]"></i>';
+                btn.innerHTML = '<i class="fas fa-play text-xl translate-x-[2px]"></i>';
             } else {
                 // Play action
                 isPlaying = true;
-                btn.innerHTML = '<i class="fas fa-pause text-lg"></i>';
+                btn.innerHTML = '<i class="fas fa-pause text-xl"></i>';
                 
                 if (isCrossfading) {
                     if (players[0] && typeof players[0].playVideo === 'function') players[0].playVideo();
@@ -716,7 +837,9 @@
 
             // Trigger crossfade when remaining time <= crossfadeTime
             if (duration > 0 && (duration - currentTime) <= crossfadeTime) {
-                beginCrossfade();
+                if (nextPreloadedIndex !== -1 && !isCrossfading) {
+                    beginCrossfade();
+                }
             }
         }
 
@@ -790,16 +913,11 @@
             document.getElementById(`volIcon${oldPlayerIdx}`).className = "fas fa-volume-mute text-white text-sm";
             
             // Advance Queue
-            currentTrackIndex = (currentTrackIndex + 1) % playlist.length;
+            currentTrackIndex = nextPreloadedIndex;
             renderQueue();
 
             // Look ahead to forcefully PRELOAD the old player with track N+1
-            let nextTrackIndex = (currentTrackIndex + 1) % playlist.length;
-            if (players[oldPlayerIdx] && typeof players[oldPlayerIdx].loadVideoById === 'function') {
-                players[oldPlayerIdx].setVolume(0);
-                isPreloading[oldPlayerIdx] = true;
-                players[oldPlayerIdx].loadVideoById(playlist[nextTrackIndex]); // This triggers PLAYING, gets paused at 0
-            }
+            updatePreload();
         }
     </script>
 </body>
