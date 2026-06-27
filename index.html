@@ -93,16 +93,11 @@
         </div>
         
         <div class="flex-1 max-w-2xl flex items-center relative">
-            <div class="absolute left-4 text-gray-400"><i class="fas fa-search"></i></div>
-            <input type="text" id="playlistInput" placeholder="Search songs, artists, or paste YouTube Playlist URL..." class="w-full bg-[#212121] border border-[#333] rounded-full pl-12 pr-24 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-white/50 transition-colors text-sm" autocomplete="off" onkeydown="if(event.key === 'Enter') handleSearchOrLoad()" oninput="handleSearchInput(this.value)" onfocus="handleSearchFocus()" onblur="handleSearchBlur()">
-            <button onclick="handleSearchOrLoad()" class="absolute right-0 top-0 bottom-0 px-6 bg-white text-black font-semibold rounded-r-full hover:bg-gray-200 transition-colors text-sm">
-                Search
+            <div class="absolute left-4 text-gray-400"><i class="fas fa-list"></i></div>
+            <input type="text" id="playlistInput" placeholder="https://www.youtube.com/playlist?..." class="w-full bg-[#212121] border border-[#333] rounded-full pl-12 pr-24 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-white/50 transition-colors text-sm" autocomplete="off" onkeydown="if(event.key === 'Enter') handleLoadPlaylist()">
+            <button onclick="handleLoadPlaylist()" class="absolute right-0 top-0 bottom-0 px-6 bg-white text-black font-semibold rounded-r-full hover:bg-gray-200 transition-colors text-sm">
+                Load
             </button>
-            
-            <!-- Dropdown Search Results -->
-            <div id="searchResults" class="absolute top-full left-0 right-12 mt-2 bg-[#212121] border border-[#333] rounded-xl shadow-2xl hidden max-h-[60vh] overflow-y-auto z-50 overflow-hidden">
-                <!-- Populated via JS -->
-            </div>
         </div>
     </nav>
     <div id="playlistStatus" class="fixed top-16 left-0 w-full text-center py-1 text-xs font-semibold hidden z-40 bg-[#212121]">Loading...</div>
@@ -152,8 +147,8 @@
                     <p class="text-xs text-gray-400">Control the automated transition length between tracks.</p>
                 </div>
                 <div class="flex items-center gap-4 mt-4 sm:mt-0">
-                    <span class="text-sm text-gray-400"><span id="fadeTimeDisplay" class="font-bold text-white w-4 inline-block text-right">10</span>s</span>
-                    <input type="range" id="fadeSlider" min="2" max="20" value="10" class="w-32" onchange="updateCrossfadeTime(this.value)">
+                    <span class="text-sm text-gray-400"><span id="fadeTimeDisplay" class="font-bold text-white w-4 inline-block text-right">7</span>s</span>
+                    <input type="range" id="fadeSlider" min="2" max="20" value="7" class="w-32" onchange="updateCrossfadeTime(this.value)">
                 </div>
             </div>
         </div>
@@ -224,7 +219,7 @@
         let activePlayerIndex = 0; // 0 for Deck A, 1 for Deck B
         let currentTrackIndex = 0;
         let isCrossfading = false;
-        let crossfadeTime = 10; // Default 10 seconds
+        let crossfadeTime = 7; // Default 7 seconds
         let playbackMonitor = null;
         let fadeInterval = null; // Track crossfade interval globally to allow cancellation
         let readyCount = 0; // Ensure all 3 iframes load before playing
@@ -233,170 +228,19 @@
         let isSeeking = false; // Track if user is dragging slider
         let isPreloading = [false, false, false]; // Track if player is doing a stealth load
 
-        // Search state extensions
-        let searchTimeout = null;
-        let isSearchFocused = false;
-
-        function isUrlSearch(str) {
-            return /^https?:\/\//i.test(str) || str.includes('youtube.com') || str.includes('youtu.be');
-        }
-
-        function handleSearchFocus() {
-            isSearchFocused = true;
-            const input = document.getElementById('playlistInput').value;
-            if (input.trim() && !isUrlSearch(input)) {
-                document.getElementById('searchResults').classList.remove('hidden');
-            }
-        }
-
-        function handleSearchBlur() {
-            isSearchFocused = false;
-            // Delay hiding to allow click events on the dropdown to fire
-            setTimeout(() => {
-                document.getElementById('searchResults').classList.add('hidden');
-            }, 250);
-        }
-
-        async function handleSearchInput(query) {
-            const dropdown = document.getElementById('searchResults');
-            
-            if (!query.trim() || isUrlSearch(query)) {
-                dropdown.classList.add('hidden');
-                return;
-            }
-
-            if (isSearchFocused) {
-                dropdown.classList.remove('hidden');
-            }
-            
-            dropdown.innerHTML = '<div class="p-4 text-center text-sm text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>Searching...</div>';
-            
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(async () => {
-                try {
-                    const results = await performRobustSearch(query);
-                    renderSearchResults(results);
-                } catch (err) {
-                    dropdown.innerHTML = '<div class="p-4 text-center text-sm text-red-500">Failed to fetch results. Please try again.</div>';
-                }
-            }, 600); // Debounce
-        }
-
-        // SCRAPING PROXY SEARCH: Bypasses official YouTube API and flaky open-source APIs
-        // directly extracts search results from YouTube's raw HTML response.
-        async function performRobustSearch(query) {
-            const targetUrl = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(query);
-            
-            // Public CORS proxies to bypass browser protections for our direct scrape
-            const proxies = [
-                `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
-                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`
-            ];
-            
-            let html = null;
-            for (let proxy of proxies) {
-                try {
-                    const res = await fetch(proxy);
-                    if (!res.ok) continue;
-                    
-                    if (proxy.includes('allorigins')) {
-                        const data = await res.json();
-                        html = data.contents;
-                    } else {
-                        html = await res.text();
-                    }
-                    
-                    if (html && html.includes('ytInitialData')) break; // Successfully fetched valid YT HTML
-                } catch (e) {
-                    console.warn("Proxy failed, trying next...");
-                }
-            }
-            
-            if (!html) throw new Error("Failed to fetch search page");
-
-            // Extract the embedded JSON state object from YouTube's source code
-            let dataString = html.split('var ytInitialData = ')[1];
-            if (!dataString) {
-                dataString = html.split('window["ytInitialData"] = ')[1];
-            }
-            if (!dataString) throw new Error("Could not extract data");
-            
-            // Fix Syntax Error: Splitting string without causing browser to prematurely close our script tag
-            dataString = dataString.split(';</sc' + 'ript>')[0];
-            const parsed = JSON.parse(dataString);
-            
-            let results = [];
-            const contents = parsed.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
-            
-            if (contents) {
-                for (let section of contents) {
-                    if (section.itemSectionRenderer?.contents) {
-                        for (let item of section.itemSectionRenderer.contents) {
-                            const video = item.videoRenderer;
-                            if (video && video.videoId) {
-                                results.push({
-                                    videoId: video.videoId,
-                                    title: video.title?.runs?.[0]?.text || "Unknown Title",
-                                    uploaderName: video.ownerText?.runs?.[0]?.text || "YouTube"
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            
-            if (results.length > 0) {
-                return results.slice(0, 8); // Top 8 video results
-            }
-            
-            throw new Error("No playable streams found.");
-        }
-
-        function renderSearchResults(results) {
-            const dropdown = document.getElementById('searchResults');
-            if (!results || results.length === 0) {
-                dropdown.innerHTML = '<div class="p-4 text-center text-sm text-gray-400">No results found.</div>';
-                return;
-            }
-
-            let htmlStr = '';
-            results.forEach(item => {
-                const videoId = item.videoId;
-                
-                if (videoId) {
-                    // Pre-save title so queue renders instantly without noembed API fetch
-                    trackTitles[videoId] = item.title;
-                    
-                    const safeTitle = item.title.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-                    const uploader = item.uploaderName || 'YouTube';
-                    
-                    htmlStr += `
-                        <div class="flex items-center gap-3 p-3 hover:bg-white/10 cursor-pointer transition-colors border-b border-white/5 last:border-0" onclick="playSearchResult('${videoId}')">
-                            <div class="w-12 h-9 bg-[#121212] rounded overflow-hidden flex-shrink-0 relative">
-                                <img src="https://img.youtube.com/vi/${videoId}/default.jpg" class="w-full h-full object-cover absolute top-1/2 transform -translate-y-1/2">
-                            </div>
-                            <div class="flex flex-col overflow-hidden">
-                                <span class="text-sm font-medium text-white truncate">${safeTitle}</span>
-                                <span class="text-xs text-gray-400 truncate">${uploader}</span>
-                            </div>
-                        </div>
-                    `;
-                }
-            });
-            dropdown.innerHTML = htmlStr;
-        }
-
-        function playSearchResult(videoId) {
-            document.getElementById('playlistInput').value = `https://youtube.com/watch?v=${videoId}`;
-            document.getElementById('searchResults').classList.add('hidden');
-            handleSearchOrLoad();
-        }
-
         // Playlist state extensions
         let nextPreloadedIndex = 1; 
         let isShuffle = false;
         let repeatState = 0; // 0=Off, 1=All, 2=One
         let shuffledQueue = [];
+
+        // Restore previously used playlist URL
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedUrl = localStorage.getItem('savedPlaylistUrl');
+            if (savedUrl) {
+                document.getElementById('playlistInput').value = savedUrl;
+            }
+        });
 
         // Update crossfade duration
         function updateCrossfadeTime(val) {
@@ -715,7 +559,12 @@
                         document.getElementById(`volBar${endedIdx}`).style.width = `0%`;
                         document.getElementById(`volBar${nextIdx}`).style.width = `100%`;
                         
-                        finishCrossfade(endedIdx, nextIdx);
+                        // Execute cut over immediately
+                        activePlayerIndex = nextIdx;
+                        document.getElementById(`volIcon${endedIdx}`).className = "fas fa-volume-mute text-white text-sm";
+                        currentTrackIndex = nextPreloadedIndex;
+                        renderQueue();
+                        updatePreload();
                         
                         if (isPlaying && players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
                             isPreloading[activePlayerIndex] = false;
@@ -753,20 +602,28 @@
             return match ? match[1] : (url.length > 10 && !url.includes('/') ? url : null); 
         }
 
-        // Handle user submitting a search or playlist link
-        async function handleSearchOrLoad() {
+        // Handle user submitting a playlist link
+        function handleLoadPlaylist() {
             const input = document.getElementById('playlistInput').value.trim();
             const status = document.getElementById('playlistStatus');
             status.classList.remove('hidden');
             
-            if(!input) {
-                status.innerText = "❌ Please enter a search term or URL.";
+            // Save valid input URL to local browser storage
+            if (input) {
+                localStorage.setItem('savedPlaylistUrl', input);
+            }
+            
+            const listId = extractPlaylistId(input);
+            
+            if(!listId) {
+                status.innerText = "❌ Please enter a valid YouTube Playlist URL.";
                 status.className = "fixed top-16 left-0 w-full text-center py-1 text-xs font-semibold z-40 bg-red-900 text-white";
                 setTimeout(() => status.classList.add('hidden'), 3000);
                 return;
             }
 
-            document.getElementById('searchResults').classList.add('hidden');
+            status.innerText = "⏳ Fetching playlist tracks...";
+            status.className = "fixed top-16 left-0 w-full text-center py-1 text-xs font-semibold z-40 bg-[#333] text-white";
 
             // Stop current playback and reset state
             isPlaying = false;
@@ -790,97 +647,37 @@
             document.getElementById('volBar0').style.width = '100%';
             document.getElementById('volBar1').style.width = '0%';
 
-            // Check if input is a URL
-            if (isUrlSearch(input)) {
-                const listId = extractPlaylistId(input);
-                if (listId) {
-                    status.innerText = "⏳ Fetching playlist tracks...";
-                    status.className = "fixed top-16 left-0 w-full text-center py-1 text-xs font-semibold z-40 bg-[#333] text-white";
-                    
-                    // Ask the hidden player to cue the playlist so we can extract its IDs
-                    isFetchingPlaylist = true;
-                    if (players[2] && typeof players[2].loadPlaylist === 'function') {
-                        players[2].loadPlaylist({list: listId, listType: 'playlist'});
-                        
-                        setTimeout(() => { if (isFetchingPlaylist && typeof players[2].playVideo === 'function') players[2].playVideo(); }, 1000);
+            // Ask the hidden player to cue the playlist so we can extract its IDs
+            isFetchingPlaylist = true;
+            if (players[2] && typeof players[2].loadPlaylist === 'function') {
+                players[2].loadPlaylist({list: listId, listType: 'playlist'});
+                
+                setTimeout(() => { if (isFetchingPlaylist && typeof players[2].playVideo === 'function') players[2].playVideo(); }, 1000);
 
-                        let pollInterval = setInterval(() => {
-                            if (!isFetchingPlaylist) {
-                                clearInterval(pollInterval);
-                                return;
-                            }
-                            let fetched = typeof players[2].getPlaylist === 'function' ? players[2].getPlaylist() : null;
-                            if (fetched && fetched.length > 0) {
-                                clearInterval(pollInterval);
-                                handlePlaylistSuccess(fetched);
-                            }
-                        }, 500);
-
-                        setTimeout(() => {
-                            if (isFetchingPlaylist) {
-                                isFetchingPlaylist = false;
-                                status.innerText = "❌ Request timed out. Ensure the playlist is public and contains playable tracks.";
-                                status.className = "fixed top-16 left-0 w-full text-center py-1 text-xs font-semibold z-40 bg-red-900 text-white";
-                                document.getElementById('playPauseBtn').disabled = false;
-                                document.getElementById('prevBtn').disabled = false;
-                                document.getElementById('nextBtn').disabled = false;
-                                document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play text-xl translate-x-[2px]"></i>';
-                                setTimeout(() => status.classList.add('hidden'), 5000);
-                            }
-                        }, 8000);
+                let pollInterval = setInterval(() => {
+                    if (!isFetchingPlaylist) {
+                        clearInterval(pollInterval);
+                        return;
                     }
-                } else {
-                    // It's a URL but no playlist, try single video
-                    const videoIdMatch = input.match(/[?&]v=([^&]+)/) || input.match(/youtu\.be\/([^?]+)/);
-                    if (videoIdMatch) {
-                        isFetchingPlaylist = true;
-                        handlePlaylistSuccess([videoIdMatch[1]]);
-                    } else {
-                        status.innerText = "❌ Invalid YouTube URL.";
+                    let fetched = typeof players[2].getPlaylist === 'function' ? players[2].getPlaylist() : null;
+                    if (fetched && fetched.length > 0) {
+                        clearInterval(pollInterval);
+                        handlePlaylistSuccess(fetched);
+                    }
+                }, 500);
+
+                setTimeout(() => {
+                    if (isFetchingPlaylist) {
+                        isFetchingPlaylist = false;
+                        status.innerText = "❌ Request timed out. Ensure the playlist is public and contains playable tracks.";
                         status.className = "fixed top-16 left-0 w-full text-center py-1 text-xs font-semibold z-40 bg-red-900 text-white";
-                        setTimeout(() => status.classList.add('hidden'), 3000);
                         document.getElementById('playPauseBtn').disabled = false;
                         document.getElementById('prevBtn').disabled = false;
                         document.getElementById('nextBtn').disabled = false;
                         document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play text-xl translate-x-[2px]"></i>';
+                        setTimeout(() => status.classList.add('hidden'), 5000);
                     }
-                }
-            } else {
-                // PERFORM TEXT SEARCH using robust fallback search
-                status.innerText = `🔍 Searching YouTube for "${input}"...`;
-                status.className = "fixed top-16 left-0 w-full text-center py-1 text-xs font-semibold z-40 bg-[#333] text-white";
-                
-                try {
-                    const results = await performRobustSearch(input);
-                    if (results && results.length > 0) {
-                        const tracks = [];
-                        results.forEach(item => {
-                            if (item.videoId) {
-                                tracks.push(item.videoId);
-                                trackTitles[item.videoId] = item.title;
-                            }
-                        });
-
-                        if (tracks.length > 0) {
-                            isFetchingPlaylist = true;
-                            handlePlaylistSuccess(tracks);
-                        } else {
-                            throw new Error("No playable streams found.");
-                        }
-                    } else {
-                        throw new Error("No results found.");
-                    }
-                } catch (error) {
-                    console.error(error);
-                    status.innerText = "❌ Search failed. Please try a direct Playlist URL instead.";
-                    status.className = "fixed top-16 left-0 w-full text-center py-1 text-xs font-semibold z-40 bg-red-900 text-white";
-                    setTimeout(() => status.classList.add('hidden'), 5000);
-                    
-                    document.getElementById('playPauseBtn').disabled = false;
-                    document.getElementById('prevBtn').disabled = false;
-                    document.getElementById('nextBtn').disabled = false;
-                    document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play text-xl translate-x-[2px]"></i>';
-                }
+                }, 8000);
             }
         }
 
@@ -1107,7 +904,14 @@
             document.getElementById(`volIcon${fadingOutPlayerIndex}`).className = "fas fa-volume-down text-white text-sm";
 
             let fadeStepTime = 100; // Time in ms per volume tick
-            let totalSteps = (crossfadeTime * 1000) / fadeStepTime;
+            
+            // Asymmetric ratio logic: 1:2
+            // Outgoing track fades completely over 'crossfadeTime' duration
+            let totalStepsOut = (crossfadeTime * 1000) / fadeStepTime;
+            
+            // Incoming track fades in over TWICE the duration 
+            let totalStepsIn = totalStepsOut * 2; 
+            
             let currentStep = 0;
 
             if (fadeInterval) clearInterval(fadeInterval);
@@ -1116,9 +920,9 @@
 
                 currentStep++;
                 
-                // Calculate volume (0 to 100)
-                let volOut = Math.max(0, 100 - (currentStep / totalSteps) * 100);
-                let volIn = Math.min(100, (currentStep / totalSteps) * 100);
+                // Calculate volume (0 to 100) using respective independent step bounds
+                let volOut = Math.max(0, 100 - (currentStep / totalStepsOut) * 100);
+                let volIn = Math.min(100, (currentStep / totalStepsIn) * 100);
 
                 // Apply to YouTube iFrames
                 if (playerOut && typeof playerOut.setVolume === 'function') playerOut.setVolume(volOut);
@@ -1128,10 +932,14 @@
                 document.getElementById(`volBar${fadingOutPlayerIndex}`).style.width = `${volOut}%`;
                 document.getElementById(`volBar${fadingInPlayerIndex}`).style.width = `${volIn}%`;
 
-                // Finish fading
-                if (currentStep >= totalSteps) {
-                    clearInterval(fadeInterval);
+                // Phase 1 complete: Outgoing track is fully silenced. Immediately stop it and update UI to look at the new track.
+                if (currentStep === totalStepsOut) {
                     finishCrossfade(fadingOutPlayerIndex, fadingInPlayerIndex);
+                }
+
+                // Phase 2 complete: Incoming track has finally reached 100% volume
+                if (currentStep >= totalStepsIn) {
+                    clearInterval(fadeInterval);
                 }
             }, fadeStepTime);
         }
