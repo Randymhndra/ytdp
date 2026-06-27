@@ -282,26 +282,55 @@
             }, 600); // Debounce
         }
 
+        // Updated for maximum resiliency combining Invidious & Piped APIs
         async function performRobustSearch(query) {
-            // Multiple instances to ensure high uptime, since individual instances can rate limit
             const instances = [
-                'https://pipedapi.kavin.rocks',
-                'https://pipedapi.smnz.de',
-                'https://pipedapi.lunar.icu',
-                'https://api.piped.projectsegfau.lt'
+                // Highly available Invidious instances
+                { url: 'https://vid.puffyan.us/api/v1/search?q=', type: 'invidious' },
+                { url: 'https://inv.tux.pizza/api/v1/search?q=', type: 'invidious' },
+                { url: 'https://invidious.jing.rocks/api/v1/search?q=', type: 'invidious' },
+                { url: 'https://invidious.nerdvpn.de/api/v1/search?q=', type: 'invidious' },
+                // Fallback Piped instances
+                { url: 'https://pipedapi.kavin.rocks/search?q=', type: 'piped' },
+                { url: 'https://pipedapi.smnz.de/search?q=', type: 'piped' },
+                { url: 'https://pipedapi.lunar.icu/search?q=', type: 'piped' }
             ];
             
-            for (let base of instances) {
+            for (let instance of instances) {
                 try {
-                    const response = await fetch(`${base}/search?q=${encodeURIComponent(query)}&filter=all`);
+                    const reqUrl = instance.type === 'piped' 
+                        ? `${instance.url}${encodeURIComponent(query)}&filter=all` 
+                        : `${instance.url}${encodeURIComponent(query)}`;
+                        
+                    const response = await fetch(reqUrl);
                     if (!response.ok) continue;
+                    
                     const data = await response.json();
-                    if (data && data.items && data.items.length > 0) {
-                        return data.items.filter(item => item.type === 'stream').slice(0, 8); // top 8 video results
+                    let results = [];
+                    
+                    if (instance.type === 'invidious' && Array.isArray(data)) {
+                        results = data.filter(item => item.type === 'video').map(item => ({
+                            videoId: item.videoId,
+                            title: item.title,
+                            uploaderName: item.author
+                        }));
+                    } else if (instance.type === 'piped' && data.items) {
+                        results = data.items.filter(item => item.type === 'stream').map(item => {
+                            const vMatch = item.url.match(/v=([^&]+)/);
+                            return {
+                                videoId: vMatch ? vMatch[1] : null,
+                                title: item.title,
+                                uploaderName: item.uploaderName
+                            };
+                        }).filter(item => item.videoId);
+                    }
+
+                    if (results.length > 0) {
+                        return results.slice(0, 8); // top 8 video results
                     }
                 } catch (error) {
-                    console.warn(`Search failed on ${base}, trying next...`);
-                    continue;
+                    console.warn(`Search failed on ${instance.url}, trying next...`);
+                    continue; // Suppress errors and try next server silently
                 }
             }
             throw new Error("All search instances failed");
@@ -316,9 +345,7 @@
 
             let htmlStr = '';
             results.forEach(item => {
-                // Extract ID safely
-                const vMatch = item.url.match(/v=([^&]+)/);
-                const videoId = vMatch ? vMatch[1] : '';
+                const videoId = item.videoId;
                 
                 if (videoId) {
                     // Pre-save title so queue renders instantly without noembed API fetch
@@ -812,10 +839,9 @@
                     if (results && results.length > 0) {
                         const tracks = [];
                         results.forEach(item => {
-                            const vMatch = item.url.match(/v=([^&]+)/);
-                            if (vMatch) {
-                                tracks.push(vMatch[1]);
-                                trackTitles[vMatch[1]] = item.title;
+                            if (item.videoId) {
+                                tracks.push(item.videoId);
+                                trackTitles[item.videoId] = item.title;
                             }
                         });
 
