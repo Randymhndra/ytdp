@@ -90,7 +90,7 @@
                 <span>Crossfade duration: <span id="fadeTimeDisplay" class="font-bold text-white">10</span>s</span>
                 <input type="range" id="fadeSlider" min="2" max="20" value="10" class="w-32 accent-violet-500" onchange="updateCrossfadeTime(this.value)">
             </div>
-            <button id="startBtn" onclick="startPlaylist()" disabled class="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold py-4 px-10 rounded-full text-lg shadow-lg shadow-violet-500/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+            <button id="playPauseBtn" onclick="togglePlayback()" disabled class="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold py-4 px-10 rounded-full text-lg shadow-lg shadow-violet-500/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
                 <i class="fas fa-spinner fa-spin mr-2"></i> Loading Players...
             </button>
         </div>
@@ -241,8 +241,8 @@
                         const status = document.getElementById('playlistStatus');
                         status.innerText = "❌ Failed to load playlist. Ensure it is public.";
                         status.className = "text-sm mt-2 text-red-400";
-                        document.getElementById('startBtn').disabled = false;
-                        document.getElementById('startBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Start Playback';
+                        document.getElementById('playPauseBtn').disabled = false;
+                        document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Play';
                     }
                 }
             });
@@ -307,8 +307,8 @@
         function onPlayerReady(event) {
             readyCount++;
             if(readyCount === 3) { // 3 iframes initialized
-                document.getElementById('startBtn').disabled = false;
-                document.getElementById('startBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Start Playback';
+                document.getElementById('playPauseBtn').disabled = false;
+                document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Play';
                 
                 // Initialize default volumes safely
                 if (players[0] && typeof players[0].setVolume === 'function') players[0].setVolume(100);
@@ -348,8 +348,8 @@
             if (players[0] && typeof players[0].stopVideo === 'function') players[0].stopVideo();
             if (players[1] && typeof players[1].stopVideo === 'function') players[1].stopVideo();
             
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('startBtn').innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Loading...';
+            document.getElementById('playPauseBtn').disabled = true;
+            document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Loading...';
 
             // Reset UI decks visually
             activePlayerIndex = 0;
@@ -387,8 +387,8 @@
                         const status = document.getElementById('playlistStatus');
                         status.innerText = "❌ Request timed out. Ensure the playlist is public and contains playable tracks.";
                         status.className = "text-sm mt-2 text-red-400";
-                        document.getElementById('startBtn').disabled = false;
-                        document.getElementById('startBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Start Playback';
+                        document.getElementById('playPauseBtn').disabled = false;
+                        document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Play';
                     }
                 }, 8000);
             }
@@ -413,9 +413,9 @@
             if (players[0] && typeof players[0].cueVideoById === 'function') players[0].cueVideoById(playlist[0]);
             if (players[1] && typeof players[1].cueVideoById === 'function') players[1].cueVideoById(playlist[1] || playlist[0]);
             
-            // Re-enable start button
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('startBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Start Playback';
+            // Re-enable play/pause button
+            document.getElementById('playPauseBtn').disabled = false;
+            document.getElementById('playPauseBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Play';
         }
 
         // Fired when hidden player changes state
@@ -430,29 +430,49 @@
             }
         }
 
-        // Start the crossfading magic loop
-        function startPlaylist() {
-            // Prevent multiple rapid clicks from starting multiple loops or crashing if methods aren't loaded
+        // Play/Pause toggle logic
+        function togglePlayback() {
             if (!players[0] || typeof players[0].getPlayerState !== 'function') return;
-            if (players[0].getPlayerState() === 1 || (players[1] && typeof players[1].getPlayerState === 'function' && players[1].getPlayerState() === 1)) return; 
 
-            isPlaying = true;
-            document.getElementById('startBtn').innerHTML = '<i class="fas fa-compact-disc fa-spin mr-2"></i> Playing';
-            document.getElementById('startBtn').disabled = true;
-            
-            if (players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
-                players[activePlayerIndex].setVolume(100);
-                players[activePlayerIndex].playVideo();
+            let currentPlayer = players[activePlayerIndex];
+            if (!currentPlayer) return;
+
+            let btn = document.getElementById('playPauseBtn');
+
+            if (isPlaying) {
+                // Pause action
+                if (isCrossfading) {
+                    if (players[0] && typeof players[0].pauseVideo === 'function') players[0].pauseVideo();
+                    if (players[1] && typeof players[1].pauseVideo === 'function') players[1].pauseVideo();
+                } else {
+                    currentPlayer.pauseVideo();
+                }
+                isPlaying = false;
+                btn.innerHTML = '<i class="fas fa-play mr-2"></i> Play';
+            } else {
+                // Play action
+                isPlaying = true;
+                btn.innerHTML = '<i class="fas fa-pause mr-2"></i> Pause';
+                
+                if (isCrossfading) {
+                    if (players[0] && typeof players[0].playVideo === 'function') players[0].playVideo();
+                    if (players[1] && typeof players[1].playVideo === 'function') players[1].playVideo();
+                } else {
+                    if (typeof currentPlayer.setVolume === 'function' && currentPlayer.getVolume() !== 100) {
+                        currentPlayer.setVolume(100);
+                    }
+                    currentPlayer.playVideo();
+                }
+                
+                // Ensure monitoring continues
+                if(playbackMonitor) clearInterval(playbackMonitor);
+                playbackMonitor = setInterval(monitorPlayback, 250); 
             }
-            
-            // Begin monitoring the track progress
-            if(playbackMonitor) clearInterval(playbackMonitor);
-            playbackMonitor = setInterval(monitorPlayback, 250); // Check every quarter second for smoother slider
         }
 
         // Constantly checks time to see if we need to start fading
         function monitorPlayback() {
-            if (isCrossfading) return;
+            if (isCrossfading || !isPlaying) return;
 
             let currentPlayer = players[activePlayerIndex];
             if (!currentPlayer || typeof currentPlayer.getPlayerState !== 'function' || currentPlayer.getPlayerState() !== 1) return; // 1 = playing
@@ -507,6 +527,8 @@
             let currentStep = 0;
 
             let fadeInterval = setInterval(() => {
+                if (!isPlaying) return; // Pause fading if playback is paused
+
                 currentStep++;
                 
                 // Calculate volume (0 to 100)
