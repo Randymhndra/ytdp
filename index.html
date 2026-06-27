@@ -286,14 +286,14 @@
         async function performRobustSearch(query) {
             const instances = [
                 // Highly available Invidious instances
-                { url: 'https://vid.puffyan.us/api/v1/search?q=', type: 'invidious' },
+                { url: 'https://invidious.flokinet.to/api/v1/search?q=', type: 'invidious' },
                 { url: 'https://inv.tux.pizza/api/v1/search?q=', type: 'invidious' },
-                { url: 'https://invidious.jing.rocks/api/v1/search?q=', type: 'invidious' },
-                { url: 'https://invidious.nerdvpn.de/api/v1/search?q=', type: 'invidious' },
+                { url: 'https://invidious.weblibre.org/api/v1/search?q=', type: 'invidious' },
+                { url: 'https://vid.puffyan.us/api/v1/search?q=', type: 'invidious' },
                 // Fallback Piped instances
-                { url: 'https://pipedapi.kavin.rocks/search?q=', type: 'piped' },
-                { url: 'https://pipedapi.smnz.de/search?q=', type: 'piped' },
-                { url: 'https://pipedapi.lunar.icu/search?q=', type: 'piped' }
+                { url: 'https://api.piped.projectsegfau.lt/search?q=', type: 'piped' },
+                { url: 'https://piped-api.garudalinux.org/search?q=', type: 'piped' },
+                { url: 'https://pipedapi.smnz.de/search?q=', type: 'piped' }
             ];
             
             for (let instance of instances) {
