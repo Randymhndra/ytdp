@@ -905,12 +905,12 @@
 
             let fadeStepTime = 100; // Time in ms per volume tick
             
-            // Asymmetric ratio logic: 1:2
-            // Outgoing track fades completely over 'crossfadeTime' duration
+            // Asymmetric ratio logic: Flipped to 2:1
+            // Outgoing track (video n) fades completely over 'crossfadeTime' duration
             let totalStepsOut = (crossfadeTime * 1000) / fadeStepTime;
             
-            // Incoming track fades in over TWICE the duration 
-            let totalStepsIn = totalStepsOut * 2; 
+            // Incoming track (video n+1) fades in twice as fast (half the duration)
+            let totalStepsIn = totalStepsOut / 2; 
             
             let currentStep = 0;
 
@@ -932,14 +932,10 @@
                 document.getElementById(`volBar${fadingOutPlayerIndex}`).style.width = `${volOut}%`;
                 document.getElementById(`volBar${fadingInPlayerIndex}`).style.width = `${volIn}%`;
 
-                // Phase 1 complete: Outgoing track is fully silenced. Immediately stop it and update UI to look at the new track.
-                if (currentStep === totalStepsOut) {
-                    finishCrossfade(fadingOutPlayerIndex, fadingInPlayerIndex);
-                }
-
-                // Phase 2 complete: Incoming track has finally reached 100% volume
-                if (currentStep >= totalStepsIn) {
+                // Crossfade complete: Outgoing track is fully silenced
+                if (currentStep >= totalStepsOut) {
                     clearInterval(fadeInterval);
+                    finishCrossfade(fadingOutPlayerIndex, fadingInPlayerIndex);
                 }
             }, fadeStepTime);
         }
