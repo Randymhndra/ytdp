@@ -79,6 +79,13 @@
 
         <!-- Controls -->
         <div class="text-center mb-8">
+            <!-- Seek Bar -->
+            <div class="mb-6 flex items-center gap-4 text-sm text-gray-400 w-full max-w-2xl mx-auto bg-black/30 p-3 rounded-xl border border-white/5 shadow-inner">
+                <span id="currentTimeDisplay" class="font-mono w-10 text-right">0:00</span>
+                <input type="range" id="seekSlider" min="0" max="0" value="0" class="flex-1 accent-violet-500 h-2 bg-gray-700 rounded-lg cursor-pointer" onmousedown="isSeeking=true" ontouchstart="isSeeking=true" oninput="updateTimeDisplay(this.value)" onchange="executeSeek(this.value)">
+                <span id="totalTimeDisplay" class="font-mono w-10 text-left">0:00</span>
+            </div>
+
             <div class="mb-4 text-gray-400 flex items-center justify-center gap-4">
                 <span>Crossfade duration: <span id="fadeTimeDisplay" class="font-bold text-white">10</span>s</span>
                 <input type="range" id="fadeSlider" min="2" max="20" value="10" class="w-32 accent-violet-500" onchange="updateCrossfadeTime(this.value)">
@@ -117,11 +124,33 @@
         let readyCount = 0; // Ensure all 3 iframes load before playing
         let isPlaying = false; // Track active play state
         let isFetchingPlaylist = false; // Timeout tracker
+        let isSeeking = false; // Track if user is dragging slider
 
         // Update crossfade duration
         function updateCrossfadeTime(val) {
             crossfadeTime = parseInt(val);
             document.getElementById('fadeTimeDisplay').innerText = val;
+        }
+
+        // Helper for mm:ss
+        function formatTime(seconds) {
+            if (isNaN(seconds)) return "0:00";
+            let m = Math.floor(seconds / 60);
+            let s = Math.floor(seconds % 60);
+            return m + ":" + (s < 10 ? "0" : "") + s;
+        }
+
+        // Called while dragging
+        function updateTimeDisplay(val) {
+            document.getElementById('currentTimeDisplay').innerText = formatTime(val);
+        }
+
+        // Called on release
+        function executeSeek(val) {
+            if (players[activePlayerIndex] && typeof players[activePlayerIndex].seekTo === 'function') {
+                players[activePlayerIndex].seekTo(val, true);
+            }
+            isSeeking = false; // Resume auto-updates
         }
 
         // Render the track queue UI
@@ -418,7 +447,7 @@
             
             // Begin monitoring the track progress
             if(playbackMonitor) clearInterval(playbackMonitor);
-            playbackMonitor = setInterval(monitorPlayback, 500); // Check every half second
+            playbackMonitor = setInterval(monitorPlayback, 250); // Check every quarter second for smoother slider
         }
 
         // Constantly checks time to see if we need to start fading
@@ -430,6 +459,17 @@
 
             let duration = currentPlayer.getDuration();
             let currentTime = currentPlayer.getCurrentTime();
+
+            // UI Updates for Progress Bar
+            if (!isSeeking && duration > 0) {
+                let slider = document.getElementById('seekSlider');
+                if (slider.max != Math.floor(duration)) {
+                    slider.max = Math.floor(duration);
+                    document.getElementById('totalTimeDisplay').innerText = formatTime(duration);
+                }
+                slider.value = currentTime;
+                document.getElementById('currentTimeDisplay').innerText = formatTime(currentTime);
+            }
 
             // Trigger crossfade when remaining time <= crossfadeTime
             if (duration > 0 && (duration - currentTime) <= crossfadeTime) {
