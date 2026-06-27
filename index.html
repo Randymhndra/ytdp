@@ -194,6 +194,7 @@
             'n1dd1yax7DI'  
         ];
         
+        let trackTitles = {}; // Store fetched titles dynamically
         let players = [null, null, null]; // [Deck A, Deck B, Hidden Fetcher]
         let activePlayerIndex = 0; // 0 for Deck A, 1 for Deck B
         let currentTrackIndex = 0;
@@ -241,7 +242,7 @@
         // Render the track queue UI (YTM Style)
         function renderQueue() {
             const queueList = document.getElementById('queueList');
-            queueList.innerHTML = ''; // clear
+            let htmlStr = ''; // clear
             
             playlist.forEach((id, index) => {
                 let isCurrent = index === currentTrackIndex;
@@ -251,8 +252,35 @@
                     : `<span class="text-[#aaaaaa] text-sm w-4 text-center group-hover:hidden">${index + 1}</span><i class="fas fa-play text-white text-xs w-4 text-center hidden group-hover:inline-block"></i>`;
                 
                 let titleText = isCurrent ? 'text-white' : 'text-[#aaaaaa]';
+                
+                // Set temporary title while we fetch the real one
+                let displayTitle = trackTitles[id] || `Loading title...`;
 
-                queueList.innerHTML += `
+                // Fetch title silently in the background without needing an API key
+                if (!trackTitles[id] && !trackTitles[id + '_fetching']) {
+                    trackTitles[id + '_fetching'] = true;
+                    fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${id}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data && data.title) {
+                                trackTitles[id] = data.title;
+                                // Update all instances of this track in the queue instantly
+                                let elements = document.querySelectorAll(`.title-id-${id}`);
+                                elements.forEach(el => el.innerText = data.title);
+                            } else {
+                                trackTitles[id] = `Track ID: ${id}`;
+                                let elements = document.querySelectorAll(`.title-id-${id}`);
+                                elements.forEach(el => el.innerText = trackTitles[id]);
+                            }
+                        })
+                        .catch(err => {
+                            trackTitles[id] = `Track ID: ${id}`;
+                            let elements = document.querySelectorAll(`.title-id-${id}`);
+                            elements.forEach(el => el.innerText = trackTitles[id]);
+                        });
+                }
+
+                htmlStr += `
                     <li class="group flex items-center justify-between p-2 rounded-lg ${colorClass} transition-colors cursor-pointer" onclick="hardSwitchToTrack(${index})">
                         <div class="flex items-center gap-4 flex-1 overflow-hidden">
                             ${iconOrNum}
@@ -260,13 +288,15 @@
                                 <img src="https://img.youtube.com/vi/${id}/default.jpg" class="w-[133%] h-full object-cover absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2" onerror="this.src='https://via.placeholder.com/48x48?text=YT'">
                             </div>
                             <div class="flex flex-col overflow-hidden whitespace-nowrap">
-                                <span class="text-sm font-medium ${titleText} truncate">Track ID: ${id}</span>
+                                <span class="title-id-${id} text-sm font-medium ${titleText} truncate">${displayTitle}</span>
                                 <span class="text-xs text-[#aaaaaa] truncate">YouTube Audio</span>
                             </div>
                         </div>
                     </li>
                 `;
             });
+            
+            queueList.innerHTML = htmlStr;
         }
 
         // --- YOUTUBE API SETUP ---
