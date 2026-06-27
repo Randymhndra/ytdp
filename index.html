@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer-when-downgrade">
+    <title>Seamless YouTube Crossfader</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .active-player { border-color: #8b5cf6; box-shadow: 0 0 15px rgba(139, 92, 246, 0.5); }
+        .inactive-player { border-color: rgba(255, 255, 255, 0.05); opacity: 0.6; }
+        .vol-bar { transition: width 0.1s linear; }
+        /* Hide scrollbar for queue list */
+        #queueList::-webkit-scrollbar { width: 6px; }
+        #queueList::-webkit-scrollbar-track { background: transparent; }
+        #queueList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white font-sans min-h-screen p-4 md:p-8">
+    <div class="max-w-5xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-fuchsia-500 mb-2">
+                <i class="fas fa-random mr-2 text-violet-400"></i>Seamless Crossfader
+            </h1>
+            <p class="text-gray-400">The developer workaround for gapless YouTube playback.</p>
+        </div>
+
+        <!-- Playlist Loader UI -->
+        <div class="w-full bg-black/30 p-5 rounded-2xl border border-white/5 mb-8 shadow-lg">
+            <label class="block text-sm font-semibold text-gray-300 mb-2">Load YouTube Playlist</label>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input type="text" id="playlistInput" placeholder="Paste YouTube Playlist URL (e.g., https://youtube.com/playlist?list=...)" class="flex-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors">
+                <button onclick="fetchPlaylist()" class="bg-violet-600 hover:bg-violet-500 text-white font-bold py-3 px-6 rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap">
+                    <i class="fas fa-search mr-2"></i> Load
+                </button>
+            </div>
+            <div id="playlistStatus" class="text-sm mt-2 text-gray-400 hidden">Loading...</div>
+        </div>
+
+        <!-- Player Decks -->
+        <div class="flex flex-col md:flex-row gap-6 mb-8 relative">
+            <!-- Deck A -->
+            <div id="playerContainer0" class="flex-1 bg-black/30 p-5 rounded-2xl border active-player transition-all duration-500 shadow-lg">
+                <h2 class="text-xl font-bold mb-3 flex justify-between items-center text-violet-400">
+                    <span><i class="fas fa-record-vinyl mr-2"></i>Deck A</span>
+                    <i class="fas fa-volume-up text-sm" id="volIcon0"></i>
+                </h2>
+                <!-- Volume bar visual -->
+                <div class="w-full h-1 bg-gray-700 rounded-full mb-4 overflow-hidden">
+                    <div id="volBar0" class="vol-bar h-full bg-violet-500" style="width: 100%;"></div>
+                </div>
+                <!-- YouTube IFrame Hook -->
+                <div id="player0" class="rounded-xl overflow-hidden pointer-events-none w-full shadow-inner bg-black"></div>
+            </div>
+            
+            <!-- Crossfade Status Indicator -->
+            <div id="crossfadeIndicator" class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-fuchsia-600 text-white px-4 py-2 rounded-full font-bold shadow-xl z-10 transition-opacity duration-300" style="opacity: 0;">
+                <i class="fas fa-exchange-alt mr-2"></i>CROSSFADING
+            </div>
+
+            <!-- Deck B -->
+            <div id="playerContainer1" class="flex-1 bg-black/30 p-5 rounded-2xl border inactive-player transition-all duration-500 shadow-lg">
+                <h2 class="text-xl font-bold mb-3 flex justify-between items-center text-fuchsia-400">
+                    <span><i class="fas fa-record-vinyl mr-2"></i>Deck B</span>
+                    <i class="fas fa-volume-mute text-sm" id="volIcon1"></i>
+                </h2>
+                <!-- Volume bar visual -->
+                <div class="w-full h-1 bg-gray-700 rounded-full mb-4 overflow-hidden">
+                    <div id="volBar1" class="vol-bar h-full bg-fuchsia-500" style="width: 0%;"></div>
+                </div>
+                <!-- YouTube IFrame Hook -->
+                <div id="player1" class="rounded-xl overflow-hidden pointer-events-none w-full shadow-inner bg-black"></div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="text-center mb-8">
+            <div class="mb-4 text-gray-400 flex items-center justify-center gap-4">
+                <span>Crossfade duration: <span id="fadeTimeDisplay" class="font-bold text-white">10</span>s</span>
+                <input type="range" id="fadeSlider" min="2" max="20" value="10" class="w-32 accent-violet-500" onchange="updateCrossfadeTime(this.value)">
+            </div>
+            <button id="startBtn" onclick="startPlaylist()" disabled class="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold py-4 px-10 rounded-full text-lg shadow-lg shadow-violet-500/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-spinner fa-spin mr-2"></i> Loading Players...
+            </button>
+        </div>
+
+        <!-- Playlist Queue -->
+        <div class="bg-black/30 p-5 rounded-2xl border border-white/5 shadow-lg">
+            <h3 class="text-lg font-bold mb-4 text-gray-300"><i class="fas fa-list-ul mr-2"></i>Up Next</h3>
+            <ul id="queueList" class="space-y-2 max-h-60 overflow-y-auto pr-2">
+                <!-- Items populated via JS -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // --- CONFIGURATION ---
+        // A default list of NoCopyrightSounds (NCS) Video IDs
+        let playlist = [
+            'jGflUbPQfW8', 
+            'K4DyBUG242c', 
+            'bM7SZ5SBzyY', 
+            'n1dd1yax7DI'  
+        ];
+        
+        let players = [null, null, null]; // [Deck A, Deck B, Hidden Fetcher]
+        let activePlayerIndex = 0; // 0 for Deck A, 1 for Deck B
+        let currentTrackIndex = 0;
+        let isCrossfading = false;
+        let crossfadeTime = 10; // Default 10 seconds
+        let playbackMonitor = null;
+        let readyCount = 0; // Ensure all 3 iframes load before playing
+        let isPlaying = false; // Track active play state
+        let isFetchingPlaylist = false; // Timeout tracker
+
+        // Update crossfade duration
+        function updateCrossfadeTime(val) {
+            crossfadeTime = parseInt(val);
+            document.getElementById('fadeTimeDisplay').innerText = val;
+        }
+
+        // Render the track queue UI
+        function renderQueue() {
+            const queueList = document.getElementById('queueList');
+            queueList.innerHTML = ''; // clear
+            
+            playlist.forEach((id, index) => {
+                let status = '';
+                let colorClass = 'text-gray-500';
+                let borderClass = 'border-transparent';
+                
+                // Highlight logic for Now Playing and Next
+                if (index === currentTrackIndex) {
+                    status = '<span class="text-xs bg-violet-600/30 text-violet-400 px-2 py-1 rounded">NOW PLAYING</span>';
+                    colorClass = 'text-white font-bold bg-white/5';
+                    borderClass = 'border-violet-500/30';
+                } else if (index === (currentTrackIndex + 1) % playlist.length) {
+                    status = '<span class="text-xs bg-fuchsia-600/30 text-fuchsia-400 px-2 py-1 rounded">NEXT</span>';
+                    colorClass = 'text-gray-300';
+                }
+                
+                queueList.innerHTML += `
+                    <li class="flex items-center justify-between p-3 rounded-lg ${colorClass} border ${borderClass} hover:bg-white/5 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <span class="opacity-50 text-sm w-4">${index + 1}.</span>
+                            <div class="w-10 h-6 bg-gray-800 rounded flex items-center justify-center overflow-hidden">
+                                <img src="https://img.youtube.com/vi/${id}/default.jpg" class="w-full h-full object-cover opacity-75" onerror="this.src='https://via.placeholder.com/40x24?text=YT'">
+                            </div>
+                            <span class="font-mono text-sm">${id}</span>
+                        </div>
+                        ${status}
+                    </li>
+                `;
+            });
+        }
+
+        // --- YOUTUBE API SETUP ---
+        // Load the IFrame Player API code asynchronously.
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        // This function is automatically called by the YT API once the script loads
+        function onYouTubeIframeAPIReady() {
+            const originUrl = window.location.protocol.startsWith('http') ? window.location.origin : 'https://youtube.com';
+
+            // Deck A
+            players[0] = new YT.Player('player0', {
+                height: '240',
+                width: '100%',
+                videoId: playlist[0],
+                playerVars: { 'controls': 0, 'disablekb': 1, 'fs': 0, 'rel': 0, 'modestbranding': 1, 'origin': originUrl },
+                events: { 'onReady': onPlayerReady, 'onError': onPlayerError, 'onStateChange': onPlayerStateChange }
+            });
+            
+            // Deck B
+            players[1] = new YT.Player('player1', {
+                height: '240',
+                width: '100%',
+                videoId: playlist[1] || playlist[0], // fallback if only 1 song
+                playerVars: { 'controls': 0, 'disablekb': 1, 'fs': 0, 'rel': 0, 'modestbranding': 1, 'origin': originUrl },
+                events: { 'onReady': onPlayerReady, 'onError': onPlayerError, 'onStateChange': onPlayerStateChange }
+            });
+
+            // Hidden Player for Fetching Playlists
+            let hiddenDiv = document.createElement('div');
+            hiddenDiv.id = 'hiddenPlayer';
+            hiddenDiv.style.position = 'absolute';
+            hiddenDiv.style.left = '0';
+            hiddenDiv.style.top = '0';
+            hiddenDiv.style.zIndex = '-50';
+            hiddenDiv.style.opacity = '0.01'; // Not exactly 0 to avoid browser throttling
+            hiddenDiv.style.width = '240px';
+            hiddenDiv.style.height = '240px';
+            hiddenDiv.style.pointerEvents = 'none';
+            document.body.appendChild(hiddenDiv);
+
+            players[2] = new YT.Player('hiddenPlayer', {
+                height: '240',
+                width: '240',
+                playerVars: { 'controls': 0, 'mute': 1, 'origin': originUrl },
+                events: {
+                    'onReady': onPlayerReady,
+                    'onStateChange': onHiddenPlayerStateChange,
+                    'onError': () => {
+                        const status = document.getElementById('playlistStatus');
+                        status.innerText = "❌ Failed to load playlist. Ensure it is public.";
+                        status.className = "text-sm mt-2 text-red-400";
+                        document.getElementById('startBtn').disabled = false;
+                        document.getElementById('startBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Start Playback';
+                    }
+                }
+            });
+            
+            renderQueue();
+        }
+
+        // Handle unplayable tracks (often due to copyright blocking embeds)
+        function onPlayerError(event) {
+            console.warn("Track unplayable. Skipping...", event.data);
+            if (!event.target || typeof event.target.getIframe !== 'function') return;
+            
+            let playerId = event.target.getIframe().id;
+            let errorIdx = playerId === 'player0' ? 0 : (playerId === 'player1' ? 1 : -1);
+            
+            if (errorIdx === activePlayerIndex) {
+                let nextIdx = activePlayerIndex === 0 ? 1 : 0;
+                
+                // Swap UI visually
+                document.getElementById(`playerContainer${nextIdx}`).classList.replace('inactive-player', 'active-player');
+                document.getElementById(`playerContainer${errorIdx}`).classList.replace('active-player', 'inactive-player');
+                document.getElementById(`volBar${errorIdx}`).style.width = `0%`;
+                document.getElementById(`volBar${nextIdx}`).style.width = `100%`;
+                
+                finishCrossfade(errorIdx, nextIdx);
+                
+                // Ensure methods exist before calling (fixes TypeError if API isn't fully ready)
+                if (isPlaying && players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
+                    players[activePlayerIndex].setVolume(100);
+                    players[activePlayerIndex].playVideo();
+                }
+            }
+        }
+
+        // Failsafe if track ends before crossfade triggers
+        function onPlayerStateChange(event) {
+            if (event.data === 0) { // State 0 = ended
+                if (!event.target || typeof event.target.getIframe !== 'function') return;
+                
+                let playerId = event.target.getIframe().id;
+                let endedIdx = playerId === 'player0' ? 0 : 1;
+                
+                if (endedIdx === activePlayerIndex && !isCrossfading) {
+                    let nextIdx = activePlayerIndex === 0 ? 1 : 0;
+                    
+                    document.getElementById(`playerContainer${nextIdx}`).classList.replace('inactive-player', 'active-player');
+                    document.getElementById(`playerContainer${endedIdx}`).classList.replace('active-player', 'inactive-player');
+                    document.getElementById(`volBar${endedIdx}`).style.width = `0%`;
+                    document.getElementById(`volBar${nextIdx}`).style.width = `100%`;
+                    
+                    finishCrossfade(endedIdx, nextIdx);
+                    
+                    if (isPlaying && players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
+                        players[activePlayerIndex].setVolume(100);
+                        players[activePlayerIndex].playVideo();
+                    }
+                }
+            }
+        }
+
+        // Fired when an iframe finishes loading
+        function onPlayerReady(event) {
+            readyCount++;
+            if(readyCount === 3) { // 3 iframes initialized
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('startBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Start Playback';
+                
+                // Initialize default volumes safely
+                if (players[0] && typeof players[0].setVolume === 'function') players[0].setVolume(100);
+                if (players[1] && typeof players[1].setVolume === 'function') players[1].setVolume(0);
+            }
+        }
+
+        // Regex helper to extract 'list' parameter from YouTube URLs
+        function extractPlaylistId(url) {
+            const reg = /[&?]list=([a-zA-Z0-9_-]+)/i;
+            const match = url.match(reg);
+            return match ? match[1] : (url.length > 10 && !url.includes('/') ? url : null); 
+        }
+
+        // Handle user submitting a playlist link
+        function fetchPlaylist() {
+            const input = document.getElementById('playlistInput').value;
+            const listId = extractPlaylistId(input);
+            const status = document.getElementById('playlistStatus');
+            status.classList.remove('hidden');
+            
+            if(!listId) {
+                status.innerText = "❌ Invalid Playlist URL. Please check and try again.";
+                status.className = "text-sm mt-2 text-red-400";
+                return;
+            }
+
+            status.innerText = "⏳ Fetching playlist tracks...";
+            status.className = "text-sm mt-2 text-violet-400";
+            
+            // Stop current playback and reset state
+            isPlaying = false;
+            if(playbackMonitor) clearInterval(playbackMonitor);
+            isCrossfading = false;
+            document.getElementById('crossfadeIndicator').style.opacity = '0';
+            
+            if (players[0] && typeof players[0].stopVideo === 'function') players[0].stopVideo();
+            if (players[1] && typeof players[1].stopVideo === 'function') players[1].stopVideo();
+            
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('startBtn').innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Loading...';
+
+            // Reset UI decks visually
+            activePlayerIndex = 0;
+            document.getElementById('playerContainer0').classList.replace('inactive-player', 'active-player');
+            document.getElementById('playerContainer1').classList.replace('active-player', 'inactive-player');
+            document.getElementById('volBar0').style.width = '100%';
+            document.getElementById('volBar1').style.width = '0%';
+
+            // Ask the hidden player to cue the playlist so we can extract its IDs
+            isFetchingPlaylist = true;
+            if (players[2] && typeof players[2].loadPlaylist === 'function') {
+                // ADDED: listType: 'playlist' is required for reliability
+                players[2].loadPlaylist({list: listId, listType: 'playlist'});
+                
+                // ADDED: Force play to wake up the iframe if blocked
+                setTimeout(() => { if (isFetchingPlaylist && typeof players[2].playVideo === 'function') players[2].playVideo(); }, 1000);
+
+                // ADDED: Poll aggressively since YouTube events can be unreliable
+                let pollInterval = setInterval(() => {
+                    if (!isFetchingPlaylist) {
+                        clearInterval(pollInterval);
+                        return;
+                    }
+                    let fetched = typeof players[2].getPlaylist === 'function' ? players[2].getPlaylist() : null;
+                    if (fetched && fetched.length > 0) {
+                        clearInterval(pollInterval);
+                        handlePlaylistSuccess(fetched);
+                    }
+                }, 500);
+
+                // Fallback timeout in case YouTube blocks the load or it remains empty
+                setTimeout(() => {
+                    if (isFetchingPlaylist) {
+                        isFetchingPlaylist = false;
+                        const status = document.getElementById('playlistStatus');
+                        status.innerText = "❌ Request timed out. Ensure the playlist is public and contains playable tracks.";
+                        status.className = "text-sm mt-2 text-red-400";
+                        document.getElementById('startBtn').disabled = false;
+                        document.getElementById('startBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Start Playback';
+                    }
+                }, 8000);
+            }
+        }
+
+        // Centralized success handler
+        function handlePlaylistSuccess(fetched) {
+            if (!isFetchingPlaylist) return;
+            isFetchingPlaylist = false;
+            
+            if (typeof players[2].stopVideo === 'function') players[2].stopVideo();
+            
+            playlist = fetched;
+            currentTrackIndex = 0;
+            renderQueue();
+            
+            const status = document.getElementById('playlistStatus');
+            status.innerText = `✅ Successfully loaded ${playlist.length} tracks!`;
+            status.className = "text-sm mt-2 text-green-400";
+            
+            // Cue the new tracks into Deck A and Deck B
+            if (players[0] && typeof players[0].cueVideoById === 'function') players[0].cueVideoById(playlist[0]);
+            if (players[1] && typeof players[1].cueVideoById === 'function') players[1].cueVideoById(playlist[1] || playlist[0]);
+            
+            // Re-enable start button
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('startBtn').innerHTML = '<i class="fas fa-play mr-2"></i> Start Playback';
+        }
+
+        // Fired when hidden player changes state
+        function onHiddenPlayerStateChange(event) {
+            if (!isFetchingPlaylist) return; // Only process if we initiated a fetch
+
+            if (players[2] && typeof players[2].getPlaylist === 'function') {
+                let fetched = players[2].getPlaylist(); // Rips array of video IDs
+                if (fetched && fetched.length > 0) {
+                    handlePlaylistSuccess(fetched);
+                }
+            }
+        }
+
+        // Start the crossfading magic loop
+        function startPlaylist() {
+            // Prevent multiple rapid clicks from starting multiple loops or crashing if methods aren't loaded
+            if (!players[0] || typeof players[0].getPlayerState !== 'function') return;
+            if (players[0].getPlayerState() === 1 || (players[1] && typeof players[1].getPlayerState === 'function' && players[1].getPlayerState() === 1)) return; 
+
+            isPlaying = true;
+            document.getElementById('startBtn').innerHTML = '<i class="fas fa-compact-disc fa-spin mr-2"></i> Playing';
+            document.getElementById('startBtn').disabled = true;
+            
+            if (players[activePlayerIndex] && typeof players[activePlayerIndex].setVolume === 'function') {
+                players[activePlayerIndex].setVolume(100);
+                players[activePlayerIndex].playVideo();
+            }
+            
+            // Begin monitoring the track progress
+            if(playbackMonitor) clearInterval(playbackMonitor);
+            playbackMonitor = setInterval(monitorPlayback, 500); // Check every half second
+        }
+
+        // Constantly checks time to see if we need to start fading
+        function monitorPlayback() {
+            if (isCrossfading) return;
+
+            let currentPlayer = players[activePlayerIndex];
+            if (!currentPlayer || typeof currentPlayer.getPlayerState !== 'function' || currentPlayer.getPlayerState() !== 1) return; // 1 = playing
+
+            let duration = currentPlayer.getDuration();
+            let currentTime = currentPlayer.getCurrentTime();
+
+            // Trigger crossfade when remaining time <= crossfadeTime
+            if (duration > 0 && (duration - currentTime) <= crossfadeTime) {
+                beginCrossfade();
+            }
+        }
+
+        // Perform the volume manipulation
+        function beginCrossfade() {
+            isCrossfading = true;
+            document.getElementById('crossfadeIndicator').style.opacity = '1';
+            
+            let fadingOutPlayerIndex = activePlayerIndex;
+            let fadingInPlayerIndex = activePlayerIndex === 0 ? 1 : 0;
+            
+            let playerOut = players[fadingOutPlayerIndex];
+            let playerIn = players[fadingInPlayerIndex];
+
+            // Prep the incoming player
+            if (playerIn && typeof playerIn.setVolume === 'function') {
+                playerIn.setVolume(0);
+                playerIn.playVideo();
+            }
+
+            // Toggle CSS classes for the glowing active border
+            document.getElementById(`playerContainer${fadingInPlayerIndex}`).classList.replace('inactive-player', 'active-player');
+            document.getElementById(`playerContainer${fadingOutPlayerIndex}`).classList.replace('active-player', 'inactive-player');
+            
+            // Swap icons visually
+            document.getElementById(`volIcon${fadingInPlayerIndex}`).className = "fas fa-volume-up text-sm";
+            document.getElementById(`volIcon${fadingOutPlayerIndex}`).className = "fas fa-volume-down text-sm";
+
+            let fadeStepTime = 100; // Time in ms per volume tick
+            let totalSteps = (crossfadeTime * 1000) / fadeStepTime;
+            let currentStep = 0;
+
+            let fadeInterval = setInterval(() => {
+                currentStep++;
+                
+                // Calculate volume (0 to 100)
+                let volOut = Math.max(0, 100 - (currentStep / totalSteps) * 100);
+                let volIn = Math.min(100, (currentStep / totalSteps) * 100);
+
+                // Apply to YouTube iFrames
+                if (playerOut && typeof playerOut.setVolume === 'function') playerOut.setVolume(volOut);
+                if (playerIn && typeof playerIn.setVolume === 'function') playerIn.setVolume(volIn);
+
+                // Apply visually to the UI bars
+                document.getElementById(`volBar${fadingOutPlayerIndex}`).style.width = `${volOut}%`;
+                document.getElementById(`volBar${fadingInPlayerIndex}`).style.width = `${volIn}%`;
+
+                // Finish fading
+                if (currentStep >= totalSteps) {
+                    clearInterval(fadeInterval);
+                    finishCrossfade(fadingOutPlayerIndex, fadingInPlayerIndex);
+                }
+            }, fadeStepTime);
+        }
+
+        // Clean up after fade completes and cue the NEXT track
+        function finishCrossfade(oldPlayerIdx, newPlayerIdx) {
+            if (players[oldPlayerIdx] && typeof players[oldPlayerIdx].stopVideo === 'function') {
+                players[oldPlayerIdx].stopVideo();
+            }
+            
+            activePlayerIndex = newPlayerIdx;
+            isCrossfading = false;
+            document.getElementById('crossfadeIndicator').style.opacity = '0';
+            
+            // Set old player icon to mute
+            document.getElementById(`volIcon${oldPlayerIdx}`).className = "fas fa-volume-mute text-sm";
+            
+            // Advance Queue
+            currentTrackIndex = (currentTrackIndex + 1) % playlist.length;
+            renderQueue();
+
+            // Look ahead to cue the old player with track N+1
+            let nextTrackIndex = (currentTrackIndex + 1) % playlist.length;
+            if (players[oldPlayerIdx] && typeof players[oldPlayerIdx].cueVideoById === 'function') {
+                players[oldPlayerIdx].cueVideoById(playlist[nextTrackIndex]);
+            }
+        }
+    </script>
+</body>
+</html>
