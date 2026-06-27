@@ -192,6 +192,9 @@
 
             <!-- Right: Extra / Volume (Placeholder for symmetry) -->
             <div class="w-1/3 flex justify-end items-center text-gray-400 gap-2 sm:gap-4 pr-2">
+                <button id="automixBtn" onclick="toggleAutomix()" class="p-3 text-white transition-colors" title="Toggle Automix (DJ-style Ducking)">
+                    <i class="fas fa-magic text-sm"></i>
+                </button>
                 <button id="shuffleBtn" onclick="toggleShuffle()" class="p-3 text-gray-400 hover:text-white transition-colors">
                     <i class="fas fa-random text-sm"></i>
                 </button>
@@ -225,6 +228,7 @@
         let isFetchingPlaylist = false; // Timeout tracker
         let isSeeking = false; // Track if user is dragging slider
         let isPreloading = [false, false, false]; // Track if player is doing a stealth load
+        let isAutomix = true; // Automix default enabled
 
         // Playlist state extensions
         let nextPreloadedIndex = 1; 
@@ -269,6 +273,17 @@
                 players[activePlayerIndex].seekTo(val, true);
             }
             isSeeking = false; // Resume auto-updates
+        }
+
+        // --- AUTOMIX LOGIC ---
+        function toggleAutomix() {
+            isAutomix = !isAutomix;
+            let btn = document.getElementById('automixBtn');
+            if (isAutomix) {
+                btn.classList.replace('text-gray-400', 'text-white');
+            } else {
+                btn.classList.replace('text-white', 'text-gray-400');
+            }
         }
 
         // --- SHUFFLE & REPEAT LOGIC ---
@@ -922,9 +937,28 @@
                 let tOut = Math.min(1, currentStep / totalStepsOut);
                 let tIn = Math.min(1, currentStep / totalStepsIn);
 
-                // Logarithmic/Equal-power volume curve for smoother audio transition
-                let volOut = Math.max(0, Math.cos(tOut * 0.5 * Math.PI) * 100);
-                let volIn = Math.min(100, Math.sin(tIn * 0.5 * Math.PI) * 100);
+                let volOut, volIn;
+
+                if (isAutomix) {
+                    // DJ Automix: Smootherstep incoming, ducking outgoing
+                    // Incoming fades in using a smooth S-curve
+                    volIn = (tIn * tIn * tIn * (tIn * (tIn * 6 - 15) + 10)) * 100;
+                    
+                    // Outgoing drops to 50% quickly, holds, then smoothly fades out
+                    if (tOut < 0.2) {
+                        let localT = tOut / 0.2;
+                        volOut = 100 - (50 * localT * localT * (3 - 2 * localT)); // smooth drop to 50
+                    } else if (tOut < 0.7) {
+                        volOut = 50; // hold
+                    } else {
+                        let localT = (tOut - 0.7) / 0.3;
+                        volOut = 50 * (1 - (localT * localT * (3 - 2 * localT))); // smooth fade to 0
+                    }
+                } else {
+                    // Standard Logarithmic/Equal-power volume curve
+                    volOut = Math.max(0, Math.cos(tOut * 0.5 * Math.PI) * 100);
+                    volIn = Math.min(100, Math.sin(tIn * 0.5 * Math.PI) * 100);
+                }
 
                 // Apply to YouTube iFrames
                 if (playerOut && typeof playerOut.setVolume === 'function') playerOut.setVolume(volOut);
