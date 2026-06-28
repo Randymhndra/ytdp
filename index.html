@@ -89,10 +89,9 @@
     <nav class="fixed top-0 left-0 right-0 h-16 bg-[#030303] flex items-center px-4 md:px-6 z-50">
         <div class="flex items-center gap-2 mr-8">
             <i class="fas fa-play-circle text-red-600 text-2xl flex-shrink-0"></i>
-            <span class="text-xl font-bold tracking-tight -translate-y-[1px]">YouTube Crossfade</span>
         </div>
         
-        <div class="flex-1 max-w-2xl flex items-center relative">
+        <div class="flex-1 max-w-4xl flex items-center relative">
             <div class="absolute left-4 text-gray-400"><i class="fas fa-list"></i></div>
             <input type="text" id="playlistInput" placeholder="https://www.youtube.com/playlist?..." class="w-full bg-[#212121] border border-[#333] rounded-full pl-12 pr-24 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-white/50 transition-colors text-sm" autocomplete="off" onkeydown="if(event.key === 'Enter') handleLoadPlaylist()">
             <button onclick="handleLoadPlaylist()" class="absolute right-0 top-0 bottom-0 px-6 bg-white text-black font-semibold rounded-r-full hover:bg-gray-200 transition-colors text-sm">
@@ -147,8 +146,8 @@
                     <p class="text-xs text-gray-400">Control the automated transition length between tracks.</p>
                 </div>
                 <div class="flex items-center gap-4 mt-4 sm:mt-0">
-                    <span class="text-sm text-gray-400"><span id="fadeTimeDisplay" class="font-bold text-white w-4 inline-block text-right">6</span>s</span>
-                    <input type="range" id="fadeSlider" min="2" max="20" value="6" class="w-32" onchange="updateCrossfadeTime(this.value)">
+                    <span class="text-sm text-gray-400"><span id="fadeTimeDisplay" class="font-bold text-white w-10 inline-block text-right">6</span>s</span>
+                    <input type="range" id="fadeSlider" min="2" max="20" step="0.1" value="6" class="w-32" oninput="updateCrossfadeTime(this.value)">
                 </div>
             </div>
         </div>
@@ -166,7 +165,7 @@
     <footer class="fixed bottom-0 left-0 right-0 bg-[#212121] z-50 flex flex-col">
         <!-- Seek Bar Container -->
         <div class="w-full bg-transparent absolute top-0 transform -translate-y-1/2 seek-container group px-0 z-50">
-            <input type="range" id="seekSlider" min="0" max="0" value="0" class="w-full block cursor-pointer" onmousedown="isSeeking=true" ontouchstart="isSeeking=true" oninput="updateTimeDisplay(this.value)" onchange="executeSeek(this.value)">
+            <input type="range" id="seekSlider" min="0" max="0" value="0" class="w-full block cursor-pointer" onmousedown="isSeeking=true" ontouchstart="isSeeking=true" oninput="updateTimeDisplay(this.value)" oninput="executeSeek(this.value)">
         </div>
 
         <div class="flex items-center justify-between px-4 md:px-6 h-[72px]">
